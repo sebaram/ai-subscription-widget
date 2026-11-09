@@ -59,6 +59,16 @@ function OllamaLogo({ color }: { color: string }) {
   );
 }
 
+function CursorLogo({ color }: { color: string }) {
+  // simplified Cursor mark: light cube + white cursor
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="3" width="13" height="13" rx="3" fill="#3b4252" />
+      <path d="M14 10l7-4-3.2 11.2L14 14l-3.2 3.2L7.6 14z" fill={color} stroke="#171c26" strokeWidth="1" />
+    </svg>
+  );
+}
+
 export function ProviderLogo({ id, color }: { id: string; color: string }) {
   switch (id) {
     case 'claude':
@@ -69,6 +79,8 @@ export function ProviderLogo({ id, color }: { id: string; color: string }) {
       return <GoogleLogo />;
     case 'ollama':
       return <OllamaLogo color={color} />;
+    case 'cursor':
+      return <CursorLogo color={color} />;
     default:
       return <span style={{ width: 14, height: 14, borderRadius: '50%', background: color, display: 'inline-block' }} />;
   }

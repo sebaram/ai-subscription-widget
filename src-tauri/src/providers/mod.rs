@@ -1,6 +1,7 @@
 pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod ollama;
 
 use crate::config::Config;
@@ -45,6 +46,7 @@ pub async fn fetch_snapshot(id: ProviderId, ctx: &FetchCtx) -> ProviderSnapshot 
         ProviderId::Codex => codex::fetch(ctx).await,
         ProviderId::Antigravity => antigravity::fetch(ctx).await,
         ProviderId::Ollama => ollama::fetch(ctx).await,
+        ProviderId::Cursor => cursor::fetch(ctx).await,
     }
 }
 

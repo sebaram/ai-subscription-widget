@@ -29,6 +29,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "process"] }
 sysinfo = "0.40.1"
 netstat2 = "0.11.2"
+aes-gcm = "0.10"
 tauri-plugin-autostart = "2.7.0"
 base64 = "0.23.1"
 rusqlite = { version = "0.41.1", features = ["bundled"] }

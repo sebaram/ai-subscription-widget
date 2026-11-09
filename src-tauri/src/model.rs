@@ -7,11 +7,12 @@ pub enum ProviderId {
     Codex,
     Antigravity,
     Ollama,
+    Cursor,
 }
 
 impl ProviderId {
-    pub fn all() -> [ProviderId; 4] {
-        [Self::Claude, Self::Codex, Self::Antigravity, Self::Ollama]
+    pub fn all() -> [ProviderId; 5] {
+        [Self::Claude, Self::Codex, Self::Antigravity, Self::Ollama, Self::Cursor]
     }
 
     pub fn slug(self) -> &'static str {
@@ -20,6 +21,7 @@ impl ProviderId {
             Self::Codex => "codex",
             Self::Antigravity => "antigravity",
             Self::Ollama => "ollama",
+            Self::Cursor => "cursor",
         }
     }
 
@@ -29,6 +31,7 @@ impl ProviderId {
             "codex" => Self::Codex,
             "antigravity" => Self::Antigravity,
             "ollama" => Self::Ollama,
+            "cursor" => Self::Cursor,
             _ => return None,
         })
     }
@@ -40,6 +43,7 @@ impl ProviderId {
             Self::Codex => ("Codex", "#10a37f"),
             Self::Antigravity => ("Antigravity", "#4285f4"),
             Self::Ollama => ("Ollama", "#8b9ba8"),
+            Self::Cursor => ("Cursor", "#e2e8f0"),
         }
     }
 }

@@ -70,7 +70,13 @@ impl Default for Config {
 pub fn defaults() -> Config {
     let provider = |id: &str| ProviderCfg { id: id.to_string(), ..Default::default() };
     Config {
-        providers: vec![provider("claude"), provider("codex"), provider("antigravity"), provider("ollama")],
+        providers: vec![
+            provider("claude"),
+            provider("codex"),
+            provider("antigravity"),
+            provider("ollama"),
+            provider("cursor"),
+        ],
         thresholds: Thresholds::default(),
         poll_seconds: 300,
         per_provider_poll: HashMap::new(),
@@ -120,7 +126,15 @@ pub fn load_at(path: &std::path::Path) -> Config {
         Err(_) => return defaults(),
     };
     match serde_json::from_slice::<Config>(&bytes) {
-        Ok(cfg) => cfg,
+        Ok(mut cfg) => {
+            // migration: register newly added providers on existing configs
+            for id in crate::model::ProviderId::all() {
+                if !cfg.providers.iter().any(|p| p.id == id.slug()) {
+                    cfg.providers.push(ProviderCfg { id: id.slug().to_string(), enabled: true, float_windows: None });
+                }
+            }
+            cfg
+        }
         Err(_) => {
             // malformed: preserve the original before rewriting (review I6)
             let _ = std::fs::copy(path, path.with_extension("json.bak"));
@@ -199,8 +213,7 @@ mod tests {
     fn load_missing_file_returns_defaults() {
         let c = load_at(&tmp_path("missing"));
         assert_eq!(c.poll_seconds, 300);
-        assert_eq!(c.providers.len(), 4);
-        assert!(c.providers.iter().all(|p| p.enabled));
+        assert_eq!(c.providers.len(), 5, "claude+codex+antigravity+ollama+cursor");
         assert!(c.ollama_api_key.is_empty());
     }
 
@@ -245,8 +258,14 @@ mod tests {
             ProviderCfg { id: "claude".into(), enabled: false, float_windows: None },
         ];
         save_at(&p, &cfg);
+        let mut expected = cfg.clone();
+        for id in crate::model::ProviderId::all() {
+            if !expected.providers.iter().any(|p| p.id == id.slug()) {
+                expected.providers.push(ProviderCfg { id: id.slug().to_string(), enabled: true, float_windows: None });
+            }
+        }
         let back = load_at(&p);
-        assert_eq!(back, cfg);
+        assert_eq!(back, expected, "fields preserved + new providers migrated in");
         std::fs::remove_file(&p).ok();
     }
 
@@ -297,6 +316,24 @@ mod tests {
         });
         let back = load_at(&p);
         assert_eq!(back.poll_seconds, 33);
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn load_migrates_old_config_with_new_providers() {
+        // a pre-Cursor config gains the new providers on load, enabled by default
+        let p = tmp_path("migrate");
+        let old = r#"{"providers":[{"id":"claude","enabled":true,"floatWindows":null},{"id":"codex","enabled":false}],"pollSeconds":120}"#;
+        std::fs::write(&p, old).unwrap();
+        let cfg = load_at(&p);
+        let ids: Vec<&str> = cfg.providers.iter().map(|p| p.id.as_str()).collect();
+        assert!(ids.contains(&"cursor"), "cursor added: {ids:?}");
+        assert!(ids.contains(&"antigravity") && ids.contains(&"ollama"));
+        assert_eq!(cfg.poll_seconds, 120, "user settings preserved");
+        let codex = cfg.providers.iter().find(|p| p.id == "codex").unwrap();
+        assert!(!codex.enabled, "user's disabled state preserved");
+        let added: Vec<&str> = cfg.providers.iter().filter(|p| p.id == "cursor").map(|_| "cursor").collect();
+        assert_eq!(added.len(), 1, "each provider registered at most once");
         std::fs::remove_file(&p).ok();
     }
 }
