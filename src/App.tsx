@@ -32,7 +32,7 @@ function App() {
             <span style={{ color: p.brandColor }}>●</span> {p.name} [{p.state}]{' '}
             {p.windows.map((w) => (
               <span key={w.id}>
-                {w.title} {w.isKnown ? `${w.usedPercent!.toFixed(1)}%` : '— (Unavailable)'}{' '}
+                {w.title} {w.isKnown && w.usedPercent != null ? `${w.usedPercent.toFixed(1)}%` : '— (Unavailable)'}{' '}
               </span>
             ))}
           </li>
