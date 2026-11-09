@@ -18,6 +18,8 @@ export function onSnapshot(cb: (s: UsageSnapshot) => void): Promise<() => void> 
 
 export function onConfig(cb: (c: Config) => void): Promise<() => void> {
   if (!isTauri()) { cb(mockConfig()); return Promise.resolve(() => {}); }
+  // deliver the current config before listening (review I1)
+  void invoke<Config>('get_config').then(cb).catch(() => {});
   return listen<Config>('config-changed', (e) => cb(e.payload));
 }
 

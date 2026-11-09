@@ -61,7 +61,9 @@ fn toggle_popup_at(app: &tauri::AppHandle, cx: f64, cy: f64) {
     }
     if let Ok(Some(monitor)) = w.current_monitor() {
         let size = monitor.size();
-        let (x, y) = clamped_popup_position(cx, cy, 430.0, 600.0, size.width as f64, size.height as f64);
+        // logical size → physical px at the monitor's DPI (review I5)
+        let scale = w.scale_factor().unwrap_or(1.0);
+        let (x, y) = clamped_popup_position(cx, cy, 430.0 * scale, 600.0 * scale, size.width as f64, size.height as f64);
         let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x as i32, y as i32)));
     }
     let _ = w.show();

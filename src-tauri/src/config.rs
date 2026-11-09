@@ -13,6 +13,7 @@ pub struct Config {
     pub theme: String,
     pub ollama_api_key: String,
     pub autostart: bool,
+    pub antigravity_oauth: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -73,6 +74,7 @@ pub fn defaults() -> Config {
         theme: "dark".to_string(),
         ollama_api_key: String::new(),
         autostart: true,
+        antigravity_oauth: false,
     }
 }
 

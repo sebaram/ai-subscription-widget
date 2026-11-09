@@ -70,5 +70,6 @@ export function mockConfig(): Config {
     theme: 'dark',
     ollamaApiKey: '',
     autostart: true,
+    antigravityOauth: false,
   };
 }

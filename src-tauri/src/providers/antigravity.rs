@@ -256,7 +256,8 @@ async fn remote_fetch(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
         .await
         .ok()?;
     if resp.status().as_u16() != 200 {
-        return Some(snapshot_for(ProviderId::Antigravity, ProviderState::AuthRequired, vec![]));
+        // stale creds with the IDE closed: "open the app" is the honest state (review I7)
+        return Some(snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]));
     }
     let windows = parse_summary(&resp.json::<Value>().await.unwrap_or(Value::Null));
     if windows.is_empty() {
@@ -268,10 +269,14 @@ async fn remote_fetch(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     let Some(info) = discovery::find_lsp() else {
-        return match remote_fetch(ctx).await {
-            Some(snap) => snap,
-            None => snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]),
-        };
+        // Google remote fallback: optional, off by default (review I7 / spec)
+        if ctx.cfg.antigravity_oauth {
+            return match remote_fetch(ctx).await {
+                Some(snap) => snap,
+                None => snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]),
+            };
+        }
+        return snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]);
     };
     local_fetch(ctx, info).await
 }

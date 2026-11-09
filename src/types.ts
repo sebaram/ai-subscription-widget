@@ -46,4 +46,6 @@ export interface Config {
   theme: string;
   ollamaApiKey: string;
   autostart: boolean;
+  /** Google daily-cloudcode fallback when the IDE is closed — off by default (spec). */
+  antigravityOauth: boolean;
 }

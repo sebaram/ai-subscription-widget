@@ -1,7 +1,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
-import { isTauri, setClickThrough } from '../tauri';
+import { isTauri, openPopup, setClickThrough } from '../tauri';
+import { floatRows } from '../floatWindows';
 import { UsageBar } from './UsageBar';
 
 const DEFAULT_TH = { amber: 50, red: 80 };
@@ -14,10 +15,7 @@ const STATE_TEXT: Record<string, string> = {
   disabled: '',
 };
 
-function visibleWindows(p: ProviderSnapshot, cfg: Config | null) {
-  const want = cfg?.providers.find((c) => c.id === p.id)?.floatWindows ?? null;
-  return want ? p.windows.filter((w) => want.includes(w.id)) : p.windows;
-}
+const visibleWindows = floatRows;
 
 function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
   const stateText = p.state === 'ok' ? '' : (STATE_TEXT[p.state] ?? p.state);
@@ -41,13 +39,25 @@ function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
 
 export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Config | null }) {
   const clickThrough = cfg?.floatBar.clickThrough ?? false;
+  const downAt = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
     void setClickThrough(clickThrough);
   }, [clickThrough]);
   return (
     <div
-      onMouseDown={() => { if (isTauri()) getCurrentWindow().startDragging().catch(() => {}); }}
+      onMouseDown={(e) => {
+        downAt.current = { x: e.clientX, y: e.clientY };
+        if (isTauri()) getCurrentWindow().startDragging().catch(() => {});
+      }}
+      onMouseUp={(e) => {
+        const d = downAt.current;
+        downAt.current = null;
+        // click-without-drag opens the popup (review I2; threshold absorbs tiny jitters)
+        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) {
+          void openPopup();
+        }
+      }}
       style={{
         background: 'rgba(23,28,38,0.96)', border: '1px solid #2a313e', borderRadius: 12,
         padding: '8px 12px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif",
