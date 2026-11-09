@@ -14,19 +14,25 @@ const LANES: [(&str, &str, &str, i64); 5] = [
 fn parse_usage(v: &Value) -> Vec<UsageWindow> {
     let mut windows = Vec::new();
     for (key, id, title, minutes) in LANES {
-        let Some(lane) = v.get(key) else { continue };
-        let utilization = lane.get("utilization").and_then(|u| u.as_f64());
-        let resets_at = lane.get("resets_at").and_then(|r| r.as_str()).map(String::from);
-        windows.push(UsageWindow {
-            id: id.into(),
-            title: title.into(),
-            window_minutes: Some(minutes),
-            used_percent: utilization,
-            quota: None,
-            resets_at,
-            pace_expected_percent: None,
-            is_known: utilization.is_some(),
-        });
+        // A null lane = the API says this window doesn't exist for the account:
+        // omit the row entirely instead of a permanent "—" (live-verified 2026-11-09).
+        match v.get(key) {
+            None | Some(Value::Null) => continue,
+            Some(lane) => {
+                let utilization = lane.get("utilization").and_then(|u| u.as_f64());
+                let resets_at = lane.get("resets_at").and_then(|r| r.as_str()).map(String::from);
+                windows.push(UsageWindow {
+                    id: id.into(),
+                    title: title.into(),
+                    window_minutes: Some(minutes),
+                    used_percent: utilization,
+                    quota: None,
+                    resets_at,
+                    pace_expected_percent: None,
+                    is_known: utilization.is_some(),
+                });
+            }
+        }
     }
     if let Some(extra) = v.get("extra_usage") {
         let enabled = extra.get("is_enabled").and_then(|b| b.as_bool()).unwrap_or(false);
@@ -316,6 +322,15 @@ mod tests {
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].used_percent, None);
         assert!(!windows[0].is_known);
+    }
+
+    #[test]
+    fn claude_null_lane_is_omitted_not_dash() {
+        // live response 2026-11-09: "five_hour": null → no such window at all
+        let v = json!({"five_hour": null, "seven_day": {"utilization": 66.0, "resets_at": "2026-11-12T00:00:00Z"}});
+        let windows = parse_usage(&v);
+        assert_eq!(windows.len(), 1, "absent lane must vanish, not render —");
+        assert_eq!(windows[0].id, "week");
     }
 
     #[test]

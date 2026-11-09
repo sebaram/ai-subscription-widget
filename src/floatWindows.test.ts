@@ -38,7 +38,7 @@ describe('floatRows', () => {
       win('custom'),
     ]);
     const rows = floatRows(p, cfgBase);
-    expect(rows.map((w) => w.id)).toEqual(['5h', 'week']);
+    expect(rows.map((w) => w.id)).toEqual(['week', '5h']); // canonical order, sorted
   });
 
   it('explicit floatWindows list wins (names apply literally)', () => {
@@ -53,5 +53,10 @@ describe('floatRows', () => {
   it('session window counts as a main window (ollama legacy plan)', () => {
     const p = provider([win('session'), win('custom')]);
     expect(floatRows(p, cfgBase).map((w) => w.id)).toEqual(['session']);
+  });
+
+  it('orders windows week → 5h → month, so 5h sits lower', () => {
+    const p = provider([win('5h'), win('month'), win('week')]);
+    expect(floatRows(p, cfgBase).map((w) => w.id)).toEqual(['week', '5h', 'month']);
   });
 });

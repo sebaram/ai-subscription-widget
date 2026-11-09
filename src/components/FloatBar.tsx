@@ -4,6 +4,7 @@ import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
 import { isTauri, openPopup, setClickThrough } from '../tauri';
 import { floatRows } from '../floatWindows';
 import { UsageBar, type BarStyle } from './UsageBar';
+import { ProviderLogo } from '../logos';
 
 const DEFAULT_TH = { amber: 50, red: 80 };
 const DEFAULT_BS: BarStyle = { thickness: 5, font: 10 };
@@ -26,7 +27,7 @@ function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: bs.font * 0.4 + 1 + 'px 0' }}>
       <div style={{ width: 76, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.brandColor }} />
+          <ProviderLogo id={p.id} color={p.brandColor} />
           <span style={{ fontSize: bs.font + 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
         </div>
         {stateText && <span style={{ paddingLeft: 14, fontSize: bs.font * 0.8, color: '#8a93a6', whiteSpace: 'nowrap' }}>{stateText}</span>}

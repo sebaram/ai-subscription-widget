@@ -3,6 +3,7 @@ import type { Config, ProviderSnapshot, UsageSnapshot, UsageWindow } from '../ty
 import { colorFor } from '../color';
 import { paceStatus, etaText, humanizeReset } from '../pace';
 import { hideMe } from '../tauri';
+import { ProviderLogo } from '../logos';
 
 const STATE_TEXT: Record<string, string> = {
   'auth-required': 'Auth required — set credentials in Settings',
@@ -51,7 +52,7 @@ function ProviderBlock({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) 
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.brandColor }} />
+        <ProviderLogo id={p.id} color={p.brandColor} />
         <strong style={{ fontSize: 12 }}>{p.name}</strong>
         <span style={{ marginLeft: 'auto', color: '#8a93a6', fontSize: 10 }}>{resets ? `resets in ${resets}` : ''}</span>
       </div>
