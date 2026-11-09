@@ -25,12 +25,13 @@ function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: bs.font * 0.4 + 1 + 'px 0' }}>
-      <div style={{ width: 76, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <div style={{ width: 96, display: 'flex', flexDirection: 'column', flexShrink: 0 }}
+        title={p.name + (stateText ? ` — ${stateText}` : '')}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <ProviderLogo id={p.id} color={p.brandColor} />
-          <span style={{ fontSize: bs.font + 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+          <span style={{ fontSize: bs.font + 1, whiteSpace: 'nowrap' }}>{p.name}</span>
         </div>
-        {stateText && <span style={{ paddingLeft: 14, fontSize: bs.font * 0.8, color: '#8a93a6', whiteSpace: 'nowrap' }}>{stateText}</span>}
+        {stateText && <span style={{ paddingLeft: 20, fontSize: bs.font * 0.8, color: '#8a93a6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stateText}</span>}
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         {floatRows(p, cfg).map((w) => (
