@@ -27,15 +27,16 @@ async fn fetch_due(
 ) {
     let cfg = config::load();
     let ctx = FetchCtx::new(cfg.clone());
-    {
-        let mut guard = cache.lock().await;
-        for slug in due {
-            let Some(id) = ProviderId::from_slug(slug) else { continue };
-            let snap = crate::providers::fetch_snapshot(id, &ctx).await;
-            guard.insert(slug.clone(), snap);
-        }
+    // fetch OUTSIDE the lock so one stalled provider can't block the cache or the tray
+    let mut fetched: Vec<ProviderSnapshot> = Vec::new();
+    for slug in due {
+        let Some(id) = ProviderId::from_slug(slug) else { continue };
+        fetched.push(crate::providers::fetch_snapshot(id, &ctx).await);
     }
-    let guard = cache.lock().await;
+    let mut guard = cache.lock().await;
+    for snap in fetched {
+        guard.insert(snap.id.slug().to_string(), snap);
+    }
     let providers: Vec<ProviderSnapshot> = cfg
         .providers
         .iter()
