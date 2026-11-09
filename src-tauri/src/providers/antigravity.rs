@@ -421,13 +421,15 @@ fn agy_exe() -> Option<std::path::PathBuf> {
 /// groups from its own login; works headless even when the IDE is closed.
 async fn agy_usage_windows(ctx: &FetchCtx) -> Option<Vec<UsageWindow>> {
     let exe = agy_exe()?;
-    let out = tokio::time::timeout(
-        std::time::Duration::from_secs(45),
-        tokio::process::Command::new(exe).args(["-p", "/usage", "--output-format", "json"]).output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.args(["-p", "/usage", "--output-format", "json"]);
+    // agy is a console app; without CREATE_NO_WINDOW every poll flashes a terminal
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(45), cmd.output())
+        .await
+        .ok()?
+        .ok()?;
     let v: Value = serde_json::from_slice(&out.stdout).ok()?;
     let data = v.get("command")?.get("data")?.clone();
     let windows = parse_summary(&data);
