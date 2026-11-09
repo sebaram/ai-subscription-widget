@@ -16,6 +16,36 @@ fn clamped_popup_position(cx: f64, cy: f64, w: f64, h: f64, screen_w: f64, scree
     (x, y)
 }
 
+#[derive(Debug, PartialEq)]
+pub enum AutoStartCmd {
+    Enable,
+    Disable,
+}
+
+/// Only touch the OS autostart state when it differs from what config wants.
+fn autostart_action(current_enabled: Option<bool>, want: bool) -> Option<AutoStartCmd> {
+    match current_enabled {
+        Some(true) if want => None,
+        Some(false) if !want => None,
+        Some(false) | None if want => Some(AutoStartCmd::Enable),
+        _ => Some(AutoStartCmd::Disable),
+    }
+}
+
+fn apply_autostart(app: &tauri::AppHandle, want: bool) {
+    use tauri_plugin_autostart::ManagerExt;
+    let current = app.autolaunch().is_enabled().ok();
+    match autostart_action(current, want) {
+        Some(AutoStartCmd::Enable) => {
+            let _ = app.autolaunch().enable();
+        }
+        Some(AutoStartCmd::Disable) => {
+            let _ = app.autolaunch().disable();
+        }
+        None => {}
+    }
+}
+
 fn spawn_window_refresh(app: tauri::AppHandle, cache: &Arc<SnapshotCache>) {
     let cache = Arc::clone(cache);
     tauri::async_runtime::spawn(async move {
@@ -78,6 +108,20 @@ fn save_config(cfg: crate::config::Config, app: tauri::AppHandle) -> Result<(), 
 }
 
 #[tauri::command]
+fn set_click_through(on: bool, webview: tauri::WebviewWindow) {
+    let _ = webview.set_ignore_cursor_events(on);
+}
+
+/// Persist the float bar's current position (backend reads the real position).
+#[tauri::command]
+fn save_float_position(webview: tauri::WebviewWindow) {
+    let Ok(pos) = webview.outer_position() else { return };
+    let mut cfg = crate::config::load();
+    cfg.float_bar.position = Some((pos.x as f64, pos.y as f64));
+    crate::config::save(&cfg);
+}
+
+#[tauri::command]
 fn hide_me(webview: tauri::WebviewWindow) {
     let _ = webview.hide();
 }
@@ -91,12 +135,63 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(Arc::new(SnapshotCache(Default::default())))
         .setup(|app| {
             let state: tauri::State<Arc<SnapshotCache>> = app.state();
             let cache = state.inner().clone();
             scheduler::start(app.handle().clone(), Arc::clone(&cache));
-            config::spawn_config_watcher(app.handle().clone());
+
+            let cfg0 = config::load();
+            apply_autostart(app.handle(), cfg0.autostart);
+            if let Some((x, y)) = cfg0.float_bar.position {
+                if let Some(float_window) = app.get_webview_window("floatbar") {
+                    let _ = float_window.set_position(tauri::Position::Physical(
+                        tauri::PhysicalPosition::new(x as i32, y as i32),
+                    ));
+                }
+            }
+
+            let handle = app.handle().clone();
+            let watcher_handle = handle.clone();
+            config::spawn_config_watcher(handle, move |cfg| {
+                apply_autostart(&watcher_handle, cfg.autostart);
+            });
+
+            // native drag → persist the position once it settles
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut last: Option<(i32, i32)> = None;
+                    let mut changed_at: Option<std::time::Instant> = None;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(400));
+                        let Some(float_window) = app_handle.get_webview_window("floatbar") else { continue };
+                        if !float_window.is_visible().unwrap_or(false) {
+                            continue;
+                        }
+                        let Ok(pos) = float_window.outer_position() else { continue };
+                        let current = (pos.x, pos.y);
+                        if last != Some(current) {
+                            last = Some(current);
+                            changed_at = Some(std::time::Instant::now());
+                            continue;
+                        }
+                        if let Some(t) = changed_at.take_if(|t| t.elapsed() >= std::time::Duration::from_millis(700)) {
+                            let _ = t;
+                            let mut cfg = config::load();
+                            let next = Some((current.0 as f64, current.1 as f64));
+                            if cfg.float_bar.position != next {
+                                cfg.float_bar.position = next;
+                                config::save(&cfg);
+                            }
+                        }
+                    }
+                });
+            }
 
             let popup = MenuItem::with_id(app, "popup", "Open popup", true, None::<&str>)?;
             let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
@@ -132,7 +227,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet, refresh_now, open_popup, open_settings, hide_me, save_config
+            greet, refresh_now, open_popup, open_settings, hide_me, save_config,
+            save_float_position, set_click_through
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -140,7 +236,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::clamped_popup_position;
+    use super::{autostart_action, AutoStartCmd, clamped_popup_position};
 
     #[test]
     fn popup_position_command_clamps_to_screen() {
@@ -156,5 +252,17 @@ mod tests {
         let (x3, y3) = clamped_popup_position(0.0, 0.0, 800.0, 600.0, 300.0, 200.0);
         assert_eq!(x3, 4.0);
         assert_eq!(y3, 4.0);
+    }
+
+    #[test]
+    fn autostart_flag_toggles_plugin() {
+        // already as desired → no plugin work
+        assert_eq!(autostart_action(Some(true), true), None);
+        assert_eq!(autostart_action(Some(false), false), None);
+        // wants on
+        assert_eq!(autostart_action(Some(false), true), Some(AutoStartCmd::Enable));
+        assert_eq!(autostart_action(None, true), Some(AutoStartCmd::Enable));
+        // wants off
+        assert_eq!(autostart_action(Some(true), false), Some(AutoStartCmd::Disable));
     }
 }

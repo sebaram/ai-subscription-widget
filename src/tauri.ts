@@ -25,8 +25,8 @@ export const refreshNow = () => (isTauri() ? invoke('refresh_now') : Promise.res
 export const openPopup = () => (isTauri() ? invoke('open_popup') : Promise.resolve());
 export const hideMe = () => (isTauri() ? invoke('hide_me') : Promise.resolve());
 export const saveConfig = (c: Config) => (isTauri() ? invoke('save_config', { cfg: c }) : Promise.resolve());
-export const saveFloatPosition = (x: number, y: number) =>
-  (isTauri() ? invoke('save_float_position', { x, y }) : Promise.resolve());
+export const saveFloatPosition = () => (isTauri() ? invoke('save_float_position') : Promise.resolve());
+export const setClickThrough = (on: boolean) => (isTauri() ? invoke('set_click_through', { on }) : Promise.resolve());
 
 // Plain-browser dev mode: emit a canned, slowly-mutating snapshot every 2 s
 // so the UI can be developed and screenshotted without the Rust backend.

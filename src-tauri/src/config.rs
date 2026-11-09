@@ -116,7 +116,7 @@ pub fn save(cfg: &Config) {
     save_at(&config_path(), cfg);
 }
 
-pub fn spawn_config_watcher(app: tauri::AppHandle) {
+pub fn spawn_config_watcher<F: Fn(&Config) + Send + 'static>(app: tauri::AppHandle, on_change: F) {
     use notify::Watcher;
     use tauri::Emitter;
 
@@ -133,6 +133,7 @@ pub fn spawn_config_watcher(app: tauri::AppHandle) {
             while rx.recv_timeout(std::time::Duration::from_millis(300)).is_ok() {}
             std::thread::sleep(std::time::Duration::from_millis(300));
             let cfg = load();
+            on_change(&cfg);
             let _ = app.emit("config-changed", &cfg);
         }
     });

@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useEffect } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
-import { isTauri } from '../tauri';
+import { isTauri, setClickThrough } from '../tauri';
 import { UsageBar } from './UsageBar';
 
 const DEFAULT_TH = { amber: 50, red: 80 };
@@ -39,6 +40,11 @@ function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
 }
 
 export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Config | null }) {
+  const clickThrough = cfg?.floatBar.clickThrough ?? false;
+  useEffect(() => {
+    if (!isTauri()) return;
+    void setClickThrough(clickThrough);
+  }, [clickThrough]);
   return (
     <div
       onMouseDown={() => { if (isTauri()) getCurrentWindow().startDragging().catch(() => {}); }}
