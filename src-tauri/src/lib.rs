@@ -116,9 +116,16 @@ fn set_click_through(on: bool, webview: tauri::WebviewWindow) {
 #[tauri::command]
 fn save_float_position(webview: tauri::WebviewWindow) {
     let Ok(pos) = webview.outer_position() else { return };
-    let mut cfg = crate::config::load();
-    cfg.float_bar.position = Some((pos.x as f64, pos.y as f64));
-    crate::config::save(&cfg);
+    crate::config::update_config(|mut cfg| {
+        cfg.float_bar.position = Some((pos.x as f64, pos.y as f64));
+        cfg
+    });
+}
+
+/// Frontend asks once at startup so Settings/thresholds work without waiting for a file change (review I1).
+#[tauri::command]
+fn get_config() -> crate::config::Config {
+    crate::config::load()
 }
 
 #[tauri::command]
@@ -182,12 +189,15 @@ pub fn run() {
                         }
                         if let Some(t) = changed_at.take_if(|t| t.elapsed() >= std::time::Duration::from_millis(700)) {
                             let _ = t;
-                            let mut cfg = config::load();
                             let next = Some((current.0 as f64, current.1 as f64));
-                            if cfg.float_bar.position != next {
-                                cfg.float_bar.position = next;
-                                config::save(&cfg);
-                            }
+                            crate::config::update_config(move |mut cfg| {
+                                if cfg.float_bar.position != next {
+                                    cfg.float_bar.position = next;
+                                    cfg
+                                } else {
+                                    cfg
+                                }
+                            });
                         }
                     }
                 });
@@ -228,7 +238,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet, refresh_now, open_popup, open_settings, hide_me, save_config,
-            save_float_position, set_click_through
+            save_float_position, set_click_through, get_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

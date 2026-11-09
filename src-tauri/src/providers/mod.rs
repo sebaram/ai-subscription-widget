@@ -48,6 +48,106 @@ pub async fn fetch_snapshot(id: ProviderId, ctx: &FetchCtx) -> ProviderSnapshot 
     }
 }
 
+// ---- token cache (review I4): refresh once per expiry, never re-play a rotated token
+
+#[derive(Clone, Debug)]
+pub struct CachedToken {
+    pub access: String,
+    pub refresh: String, // the rotated token once a refresh happened; empty = file token still in play
+    pub expires_at_ms: u64,
+}
+
+pub enum CachedStep {
+    CachedValid(String),
+    CachedRotate(String),
+    UseFile,
+}
+
+/// Decision for what to do with a cached token. The invariant: once we rotated,
+/// the file's refresh token must never be used again (reuse can kill the token family).
+pub fn first_token_step(cached: Option<CachedToken>, now_ms: u64) -> CachedStep {
+    match cached {
+        Some(t) if t.expires_at_ms > now_ms.saturating_add(30_000) => {
+            CachedStep::CachedValid(t.access)
+        }
+        Some(t) if !t.refresh.is_empty() => CachedStep::CachedRotate(t.refresh),
+        _ => CachedStep::UseFile,
+    }
+}
+
+fn token_cache() -> &'static std::sync::Mutex<std::collections::HashMap<&'static str, CachedToken>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<&'static str, CachedToken>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub fn cached_token(provider: &'static str) -> Option<CachedToken> {
+    token_cache().lock().unwrap_or_else(|e| e.into_inner()).get(provider).cloned()
+}
+
+pub fn store_token(provider: &'static str, access: String, refresh: String, expires_at_ms: u64) {
+    token_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(
+        provider,
+        CachedToken { access, refresh, expires_at_ms },
+    );
+}
+
+pub fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod token_cache_tests {
+    use super::*;
+
+    fn tok(access: &str, refresh: &str, expires_in_ms: u64) -> CachedToken {
+        CachedToken { access: access.into(), refresh: refresh.into(), expires_at_ms: now_epoch_ms() + expires_in_ms }
+    }
+
+    #[test]
+    fn cached_fresh_token_is_reused_without_refresh() {
+        let t = tok("fresh", "", 3_600_000);
+        match first_token_step(Some(t.clone()), now_epoch_ms()) {
+            CachedStep::CachedValid(a) => assert_eq!(a, "fresh"),
+            _ => panic!("expected reuse"),
+        }
+    }
+
+    #[test]
+    fn expired_cached_token_rotates_with_cached_refresh_never_file() {
+        // expired cache whose refresh was rotated: refresh again WITH the rotated token
+        let t = tok("stale", "rotated-2", 0);
+        match first_token_step(Some(t), now_epoch_ms() + 10_000) {
+            CachedStep::CachedRotate(rt) => assert_eq!(rt, "rotated-2"),
+            _ => panic!("expected rotation from cached token"),
+        }
+    }
+
+    #[test]
+    fn expired_cache_without_rotated_refresh_falls_back_to_file() {
+        let t = tok("stale", "", 0);
+        match first_token_step(Some(t), now_epoch_ms() + 10_000) {
+            CachedStep::UseFile => {}
+            _ => panic!("no rotated refresh: file path still valid"),
+        }
+    }
+
+    #[test]
+    fn no_cache_uses_file() {
+        assert!(matches!(first_token_step(None, now_epoch_ms()), CachedStep::UseFile));
+    }
+
+    #[test]
+    fn store_then_cached_roundtrip() {
+        store_token("testprov", "a".into(), "r".into(), now_epoch_ms() + 1000);
+        let c = cached_token("testprov").expect("stored");
+        assert_eq!(c.access, "a");
+        assert_eq!(c.refresh, "r");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

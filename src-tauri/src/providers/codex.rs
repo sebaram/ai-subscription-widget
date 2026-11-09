@@ -2,10 +2,9 @@ use crate::model::{snapshot_for, UsageWindow, ProviderId, ProviderSnapshot, Prov
 use crate::providers::FetchCtx;
 use serde_json::Value;
 
-fn epoch_to_iso(secs: i64) -> String {
-    chrono::DateTime::from_timestamp(secs, 0)
-        .unwrap_or_default()
-        .to_rfc3339()
+fn epoch_to_iso(secs: i64) -> Option<String> {
+    // 0 / negative = no real reset time — render nothing rather than 1970 (review minor)
+    chrono::DateTime::from_timestamp(secs, 0).filter(|_| secs > 0).map(|d| d.to_rfc3339())
 }
 
 fn window_from(
@@ -19,7 +18,7 @@ fn window_from(
         .get("reset_at")
         .or_else(|| w.get("resets_at"))
         .and_then(|r| r.as_i64())
-        .map(epoch_to_iso)
+        .and_then(epoch_to_iso)
         .or_else(|| w.get("resets_at").and_then(|r| r.as_str()).map(String::from));
     let pace = resets_at
         .as_deref()
@@ -166,6 +165,16 @@ fn token_needs_refresh(token: &str) -> bool {
     }
 }
 
+/// Expiry of a fresh access token: from its JWT exp, else a conservative 8h.
+fn exp_ms_for(access: &str, now_ms: u64) -> u64 {
+    let exp = jwt_exp_epoch(access).unwrap_or(0);
+    if exp > 0 {
+        (exp as i128 * 1000) as u64
+    } else {
+        now_ms + 28800 * 1000
+    }
+}
+
 pub struct CodexAuth {
     access_token: String,
     refresh_token: Option<String>,
@@ -263,26 +272,75 @@ async fn fetch_with_auth(ctx: &FetchCtx, auth: Option<CodexAuth>) -> ProviderSna
     let Some(mut auth) = auth else {
         return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
     };
-    if token_needs_refresh(&auth.access_token) {
-        if let Some(rt) = &auth.refresh_token {
-            match refresh_access_token(&ctx.http, rt).await {
-                Ok(new) => auth.access_token = new,
+    // Review I4: cache-first — refresh once per expiry, never re-play a rotated token.
+    use crate::providers::{first_token_step, CachedStep};
+    let now_ms = crate::providers::now_epoch_ms();
+    let mut force_refreshable = auth.refresh_token.clone();
+    let mut token = match first_token_step(crate::providers::cached_token("codex"), now_ms) {
+        CachedStep::CachedValid(t) => t,
+        CachedStep::CachedRotate(rt) => {
+            force_refreshable = None;
+            match refresh_access_token(&ctx.http, &rt).await {
+                Ok(new) => {
+                    crate::providers::store_token("codex", new.clone(), rt, exp_ms_for(&new, now_ms));
+                    new
+                }
                 Err(_) => return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
             }
         }
-    }
-    let usage = usage_call(&ctx.http, &auth.access_token, auth.account_id.as_deref()).await;
-    let windows = match usage {
+        CachedStep::UseFile => {
+            let file_token = auth.access_token.clone();
+            if token_needs_refresh(&file_token) {
+                let Some(rt) = auth.refresh_token.clone() else {
+                    return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
+                };
+                match refresh_access_token(&ctx.http, &rt).await {
+                    Ok(new) => {
+                        crate::providers::store_token("codex", new.clone(), rt.clone(), exp_ms_for(&new, now_ms));
+                        force_refreshable = Some(rt);
+                        new
+                    }
+                    Err(_) => return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
+                }
+            } else {
+                file_token
+            }
+        }
+    };
+    let usage = usage_call(&ctx.http, &token, auth.account_id.as_deref()).await;
+    match usage {
         Ok(v) => {
             let windows = parse_usage(&v);
             if windows.is_empty() {
-                return snapshot_for(ProviderId::Codex, ProviderState::Ok, vec![]);
+                // Review minor: an empty 200 is "No quota reported", not an empty card
+                snapshot_for(ProviderId::Codex, ProviderState::NoData, vec![])
+            } else {
+                snapshot_for(ProviderId::Codex, ProviderState::Ok, windows)
             }
-            windows
         }
-        Err(state) => return snapshot_for(ProviderId::Codex, state, vec![]),
-    };
-    snapshot_for(ProviderId::Codex, ProviderState::Ok, windows)
+        Err(ProviderState::AuthRequired) if force_refreshable.is_some() => {
+            let rt = force_refreshable.unwrap();
+            match refresh_access_token(&ctx.http, &rt).await {
+                Ok(new) => {
+                    crate::providers::store_token("codex", new.clone(), rt, exp_ms_for(&new, now_ms));
+                    token = new;
+                    match usage_call(&ctx.http, &token, auth.account_id.as_deref()).await {
+                        Ok(v) => {
+                            let windows = parse_usage(&v);
+                            if windows.is_empty() {
+                                snapshot_for(ProviderId::Codex, ProviderState::NoData, vec![])
+                            } else {
+                                snapshot_for(ProviderId::Codex, ProviderState::Ok, windows)
+                            }
+                        }
+                        Err(state) => snapshot_for(ProviderId::Codex, state, vec![]),
+                    }
+                }
+                Err(_) => snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
+            }
+        }
+        Err(state) => snapshot_for(ProviderId::Codex, state, vec![]),
+    }
 }
 
 #[cfg(test)]

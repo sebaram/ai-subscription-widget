@@ -104,10 +104,11 @@ fn token_needs_refresh(expires_at_ms: u64) -> bool {
 }
 
 /// In-memory only refresh — never written back (design: read-only creds).
+/// Returns (access, rotated refresh token if the server rotates, expires_in seconds).
 async fn refresh_access_token(
     http: &reqwest::Client,
     refresh_token: &str,
-) -> Result<(String, Option<String>), String> {
+) -> Result<(String, Option<String>, Option<u64>), String> {
     let enc = |s: &str| {
         let mut out = String::new();
         for b in s.bytes() {
@@ -140,6 +141,7 @@ async fn refresh_access_token(
     Ok((
         access.to_string(),
         v.get("refresh_token").and_then(|t| t.as_str()).map(String::from),
+        v.get("expires_in").and_then(|e| e.as_u64()),
     ))
 }
 
@@ -180,19 +182,49 @@ async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnaps
     let Some(creds) = creds else {
         return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]);
     };
-    let mut token = creds.access_token;
-    // expired access token → refresh in memory when a refresh token exists
-    if let Some(expiry) = creds.expires_at_ms {
-        if token_needs_refresh(expiry) {
-            match &creds.refresh_token {
-                Some(rt) => match refresh_access_token(&ctx.http, rt).await {
-                    Ok((new_token, _)) => token = new_token,
-                    Err(_) => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
-                },
-                None => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
+    // Review I4: cache-first — refresh once per expiry, never re-play a rotated token.
+    use crate::providers::{first_token_step, CachedStep};
+    let now_ms = crate::providers::now_epoch_ms();
+    let mut force_refreshable: Option<String> = match &creds.refresh_token {
+        Some(rt) => Some(rt.clone()),
+        None => None,
+    };
+    let mut token = match first_token_step(crate::providers::cached_token("claude"), now_ms) {
+        CachedStep::CachedValid(t) => t,
+        CachedStep::CachedRotate(rt) => {
+            force_refreshable = None; // family already rotated; the file token must never be retried
+            match refresh_access_token(&ctx.http, &rt).await {
+                Ok((a, rotated, exp_in)) => {
+                    store_claude_token(a.clone(), rotated.clone().unwrap_or(rt), exp_in);
+                    a
+                }
+                Err(_) => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
             }
         }
-    }
+        CachedStep::UseFile => {
+            let file_token = creds.access_token.clone();
+            let file_stale = creds
+                .expires_at_ms
+                .map(|e| now_ms.saturating_add(30_000) >= e)
+                .unwrap_or(false);
+            if file_stale {
+                let Some(rt) = &creds.refresh_token else {
+                    return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]);
+                };
+                match refresh_access_token(&ctx.http, rt).await {
+                    Ok((a, rotated, exp_in)) => {
+                        let rotated_final = rotated.unwrap_or_else(|| rt.clone());
+                        store_claude_token(a.clone(), rotated_final.clone(), exp_in);
+                        force_refreshable = Some(rotated_final);
+                        a
+                    }
+                    Err(_) => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
+                }
+            } else {
+                file_token
+            }
+        }
+    };
     let windows = match usage_call(&ctx.http, &token).await {
         Ok(v) => {
             let windows = parse_usage(&v);
@@ -201,9 +233,37 @@ async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnaps
             }
             windows
         }
-        Err(state) => return snapshot_for(ProviderId::Claude, state, vec![]),
+        Err(state) => {
+            // 401 with a still-refreshable token: one in-memory refresh + retry (review I4)
+            if state == ProviderState::AuthRequired {
+                if let Some(rt) = &force_refreshable {
+                    if let Ok((a, rotated, exp_in)) = refresh_access_token(&ctx.http, rt).await {
+                        store_claude_token(a.clone(), rotated.unwrap_or_else(|| rt.clone()), exp_in);
+                        token = a;
+                        if let Ok(v) = usage_call(&ctx.http, &token).await {
+                            let windows = parse_usage(&v);
+                            if windows.is_empty() {
+                                return snapshot_for(ProviderId::Claude, ProviderState::NoData, vec![]);
+                            }
+                            return snapshot_for(ProviderId::Claude, ProviderState::Ok, windows);
+                        }
+                    }
+                }
+            }
+            return snapshot_for(ProviderId::Claude, state, vec![]);
+        }
     };
     snapshot_for(ProviderId::Claude, ProviderState::Ok, windows)
+}
+
+fn store_claude_token(access: String, refresh: String, expires_in: Option<u64>) {
+    let exp_in = expires_in.unwrap_or(28800); // observed default: 8h
+    crate::providers::store_token(
+        "claude",
+        access,
+        refresh,
+        crate::providers::now_epoch_ms() + exp_in * 1000,
+    );
 }
 
 #[cfg(test)]
