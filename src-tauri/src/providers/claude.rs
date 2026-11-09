@@ -147,15 +147,14 @@ async fn usage_call(
     http: &reqwest::Client,
     token: &str,
 ) -> Result<Value, ProviderState> {
-    let get = | cedar: bool | {
-        let mut req = http
-            .get(if cedar { "https://api.anthropic.com/api/oauth/usage?cedar_ember=1" } else { "https://api.anthropic.com/api/oauth/usage" })
+    let get = |_cedar: bool | {
+        http
+            .get(if _cedar { "https://api.anthropic.com/api/oauth/usage?cedar_ember=1" } else { "https://api.anthropic.com/api/oauth/usage" })
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .header("anthropic-beta", "oauth-2025-04-20")
-            .header("User-Agent", "claude-cli/2.1.0 (external, cli)");
-        req
+            .header("User-Agent", "claude-cli/2.1.0 (external, cli)")
     };
     let first = get(true).send().await;
     let Ok(resp) = first else { return Err(ProviderState::NoData) };
