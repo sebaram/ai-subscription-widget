@@ -1,4 +1,6 @@
+pub mod client_discovery;
 pub mod discovery;
+pub mod token_source;
 
 use crate::model::{pace_expected, snapshot_for, ProviderId, ProviderSnapshot, ProviderState, UsageWindow};
 use crate::providers::FetchCtx;
@@ -240,8 +242,15 @@ async fn local_fetch(ctx: &FetchCtx, info: discovery::LspInfo) -> ProviderSnapsh
     }
 }
 
-/// Remote Google quota — only when gemini CLI OAuth creds exist (design: optional).
+/// Remote Google quota — uses Antigravity's OWN stored login (read-only:
+/// tokens are read into memory and refreshed for Google; nothing is ever
+/// written back to the IDE's files). Enabled by the `antigravityOauth` toggle.
 async fn remote_fetch(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
+    // Path A (preferred): the IDE's own stored login, mined in memory.
+    if token_source::read_stored_tokens(&dirs::home_dir().unwrap_or_default()).is_some() {
+        return fetch_mined(ctx).await;
+    }
+    // Path B: gemini-CLI-style creds file, if the user placed one.
     let path = dirs::home_dir()?.join(".gemini").join("oauth_creds.json");
     let text = std::fs::read_to_string(path).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
@@ -265,6 +274,65 @@ async fn remote_fetch(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
     } else {
         Some(snapshot_for(ProviderId::Antigravity, ProviderState::Ok, windows))
     }
+}
+
+/// Quota via the IDE's own token pair. Read-only + in-memory cache; the client
+/// id/secret are resolved from Antigravity's install or env overrides.
+async fn fetch_mined(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
+    let Some(mined) = token_source::read_stored_tokens(&dirs::home_dir().unwrap_or_default()) else {
+        return Some(nrunning("Open Antigravity once to store its login"));
+    };
+    let Some(client) = client_discovery::configured_client().or_else(client_discovery::discover_client) else {
+        return Some(nrunning("Antigravity OAuth client not found in the install — open the IDE once and retry"));
+    };
+    use crate::providers::{first_token_step, CachedStep};
+    let now_ms = crate::providers::now_epoch_ms();
+    let mut access = match first_token_step(crate::providers::cached_token("antigravity"), now_ms) {
+        CachedStep::CachedValid(t) => t,
+        CachedStep::CachedRotate(rt) => match token_source::refresh_access_token(&ctx.http, &client, &rt).await {
+            Ok((a, exp)) => {
+                crate::providers::store_token("antigravity", a.clone(), rt, exp);
+                a
+            }
+            Err(_) => return Some(nrunning("Antigravity login expired — open the IDE once to refresh it")),
+        },
+        CachedStep::UseFile => mined.refresh.clone(), // try refreshing the stored refresh token below
+    };
+    if matches!(
+        first_token_step(crate::providers::cached_token("antigravity"), now_ms),
+        CachedStep::UseFile
+    ) {
+        // no cache or cache expired without rotation: refresh from the stored pair
+        match token_source::refresh_access_token(&ctx.http, &client, &mined.refresh).await {
+            Ok((a, exp)) => {
+                crate::providers::store_token("antigravity", a.clone(), mined.refresh.clone(), exp);
+                access = a;
+            }
+            Err(_) => return Some(nrunning("Antigravity login expired — open the IDE once to refresh it")),
+        }
+    }
+    let resp = ctx
+        .http
+        .post("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
+        .header("Authorization", format!("Bearer {access}"))
+        .header("User-Agent", UA_REMOTE)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .ok()?;
+    if resp.status().as_u16() != 200 {
+        return Some(nrunning("Antigravity login expired — open the IDE once to refresh it"));
+    }
+    let windows = parse_summary(&resp.json::<Value>().await.unwrap_or(Value::Null));
+    if windows.is_empty() {
+        Some(snapshot_for(ProviderId::Antigravity, ProviderState::NoData, vec![]))
+    } else {
+        Some(snapshot_for(ProviderId::Antigravity, ProviderState::Ok, windows))
+    }
+}
+
+fn nrunning(message: &str) -> ProviderSnapshot {
+    snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]).with_message(message)
 }
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {

@@ -70,7 +70,7 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
       <label style={label}>global poll seconds <input type="number" value={draft.pollSeconds} onChange={(e) => up({ pollSeconds: num(e.currentTarget.value, draft.pollSeconds) })} /></label>
       <div style={{ fontSize: 10, color: '#8a93a6', marginBottom: 6 }}>Ollama is capped at ≥60s (API limit 10/min).</div>
       <label style={label}>Ollama Cloud API key <input type="password" style={{ width: 180 }} value={draft.ollamaApiKey} onChange={(e) => up({ ollamaApiKey: e.currentTarget.value })} placeholder="(from ollama.com/settings/keys)" /></label>
-      <label style={label}><input type="checkbox" checked={draft.antigravityOauth} onChange={(e) => up({ antigravityOauth: e.currentTarget.checked })} /> Antigravity via Google OAuth — track with the IDE closed (one-time `npm i -g @google/gemini-cli && gemini` login)</label>
+      <label style={label}><input type="checkbox" checked={draft.antigravityOauth} onChange={(e) => up({ antigravityOauth: e.currentTarget.checked })} /> Antigravity: track even when the IDE is closed (read-only use of Antigravity's own saved Google login)</label>
 
       <Section title="Visual" />
       <label style={label}>bar thickness <input type="range" min="3" max="14" value={draft.barThickness} onChange={(e) => up({ barThickness: num(e.currentTarget.value, draft.barThickness) })} /> <span style={{ width: 20 }}>{draft.barThickness}px</span></label>
