@@ -22,6 +22,8 @@ export interface ProviderSnapshot {
   name: string;
   brandColor: string;
   state: ProviderState;
+  /** Honest explanation for non-ok states (auth steps, offline hints). */
+  message?: string | null;
   refreshedAt: string;
   windows: UsageWindow[];
 }
@@ -48,4 +50,8 @@ export interface Config {
   autostart: boolean;
   /** Google daily-cloudcode fallback when the IDE is closed — off by default (spec). */
   antigravityOauth: boolean;
+  /** Visual: bar fill thickness in px. */
+  barThickness: number;
+  /** Visual: base font size in px. */
+  fontSize: number;
 }

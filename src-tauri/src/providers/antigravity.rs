@@ -268,15 +268,20 @@ async fn remote_fetch(ctx: &FetchCtx) -> Option<ProviderSnapshot> {
 }
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
+    let creds_exist = dirs::home_dir()
+        .map(|h| h.join(".gemini").join("oauth_creds.json").exists())
+        .unwrap_or(false);
     let Some(info) = discovery::find_lsp() else {
         // Google remote fallback: optional, off by default (review I7 / spec)
         if ctx.cfg.antigravity_oauth {
             return match remote_fetch(ctx).await {
                 Some(snap) => snap,
-                None => snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]),
+                None => snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![])
+                    .with_message(crate::providers::antigravity_offline_hint(true, creds_exist).unwrap_or_default()),
             };
         }
-        return snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![]);
+        return snapshot_for(ProviderId::Antigravity, ProviderState::NotRunning, vec![])
+            .with_message(crate::providers::antigravity_offline_hint(false, creds_exist).unwrap_or_default());
     };
     local_fetch(ctx, info).await
 }

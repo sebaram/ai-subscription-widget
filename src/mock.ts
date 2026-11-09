@@ -71,5 +71,7 @@ export function mockConfig(): Config {
     ollamaApiKey: '',
     autostart: true,
     antigravityOauth: false,
+    barThickness: 5,
+    fontSize: 10,
   };
 }

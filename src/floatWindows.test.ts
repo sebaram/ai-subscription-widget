@@ -23,6 +23,8 @@ const cfgBase: Config = {
   ollamaApiKey: '',
   autostart: true,
   antigravityOauth: false,
+  barThickness: 5,
+  fontSize: 10,
 };
 
 describe('floatRows', () => {

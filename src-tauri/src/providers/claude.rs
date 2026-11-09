@@ -175,7 +175,14 @@ async fn usage_call(
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     let creds = load_creds_from(&creds_path());
-    fetch_with_creds(ctx, creds).await
+    let snap = fetch_with_creds(ctx, creds).await;
+    if snap.state == ProviderState::AuthRequired {
+        snap.with_message("Run `claude` once (Claude Code) to log in — its stored token is read, never written")
+    } else if snap.state == ProviderState::ParseFailed {
+        snap.with_message("Could not parse the usage response (API may have changed)")
+    } else {
+        snap
+    }
 }
 
 async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnapshot {

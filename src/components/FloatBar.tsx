@@ -3,34 +3,37 @@ import { useEffect, useRef } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
 import { isTauri, openPopup, setClickThrough } from '../tauri';
 import { floatRows } from '../floatWindows';
-import { UsageBar } from './UsageBar';
+import { UsageBar, type BarStyle } from './UsageBar';
 
 const DEFAULT_TH = { amber: 50, red: 80 };
+const DEFAULT_BS: BarStyle = { thickness: 5, font: 10 };
 
 const STATE_TEXT: Record<string, string> = {
   'auth-required': 'Auth required',
-  'not-running': 'Open App to track',
+  'not-running': 'Open app to track',
   'no-data': 'No data',
   'parse-failed': 'Parsing failed',
   disabled: '',
 };
 
-const visibleWindows = floatRows;
-
 function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
   const stateText = p.state === 'ok' ? '' : (STATE_TEXT[p.state] ?? p.state);
+  const bs: BarStyle = {
+    thickness: cfg?.barThickness ?? DEFAULT_BS.thickness,
+    font: cfg?.fontSize ?? DEFAULT_BS.font,
+  };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: bs.font * 0.4 + 1 + 'px 0' }}>
       <div style={{ width: 76, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.brandColor }} />
-          <span style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+          <span style={{ fontSize: bs.font + 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
         </div>
-        {stateText && <span style={{ paddingLeft: 14, fontSize: 8, color: '#8a93a6', whiteSpace: 'nowrap' }}>{stateText}</span>}
+        {stateText && <span style={{ paddingLeft: 14, fontSize: bs.font * 0.8, color: '#8a93a6', whiteSpace: 'nowrap' }}>{stateText}</span>}
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-        {visibleWindows(p, cfg).map((w) => (
-          <UsageBar key={w.id} w={w} th={cfg?.thresholds ?? DEFAULT_TH} />
+        {floatRows(p, cfg).map((w) => (
+          <UsageBar key={w.id} w={w} th={cfg?.thresholds ?? DEFAULT_TH} bs={bs} />
         ))}
       </div>
     </div>
@@ -61,6 +64,7 @@ export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Confi
       style={{
         background: 'rgba(23,28,38,0.96)', border: '1px solid #2a313e', borderRadius: 12,
         padding: '8px 12px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif",
+        fontSize: (cfg?.fontSize ?? DEFAULT_BS.font) + 1,
         opacity: (cfg?.floatBar.opacity ?? 0.95),
         width: '100%', height: '100%', boxSizing: 'border-box',
         display: 'flex', flexDirection: 'column', justifyContent: 'center',

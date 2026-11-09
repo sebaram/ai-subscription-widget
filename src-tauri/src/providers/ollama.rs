@@ -116,7 +116,18 @@ pub fn resolve_key(cfg_key: &str) -> String {
 }
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
-    fetch_with_key(ctx, &resolve_key(&ctx.cfg.ollama_api_key)).await
+    let snap = fetch_with_key(ctx, &resolve_key(&ctx.cfg.ollama_api_key)).await;
+    map_message_auth_required(snap, "Paste your Ollama Cloud API key in Settings → Connection")
+}
+
+fn map_message_auth_required(snap: ProviderSnapshot, message: &str) -> ProviderSnapshot {
+    if snap.state == ProviderState::AuthRequired {
+        snap.with_message(message)
+    } else if snap.state == ProviderState::ParseFailed {
+        snap.with_message("Could not read the balance response (API may have changed)")
+    } else {
+        snap
+    }
 }
 
 async fn fetch_with_key(ctx: &FetchCtx, key: &str) -> ProviderSnapshot {

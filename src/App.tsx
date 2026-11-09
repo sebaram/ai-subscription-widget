@@ -24,7 +24,7 @@ function App() {
   );
   if (label === 'settings') return (
     <div style={{ height: '100%', boxSizing: 'border-box', background: '#0e1116', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Settings cfg={cfg} />
+      <Settings cfg={cfg} snap={snap} />
     </div>
   );
   return (

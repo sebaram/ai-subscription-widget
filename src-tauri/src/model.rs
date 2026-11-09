@@ -81,6 +81,7 @@ pub struct ProviderSnapshot {
     pub name: String,
     pub brand_color: String,
     pub state: ProviderState,
+    pub message: Option<String>,
     pub refreshed_at: String,
     pub windows: Vec<UsageWindow>,
 }
@@ -103,8 +104,17 @@ pub fn snapshot_for(id: ProviderId, state: ProviderState, windows: Vec<UsageWind
         name: name.into(),
         brand_color: brand_color.into(),
         state,
+        message: None,
         refreshed_at: now_iso(),
         windows,
+    }
+}
+
+impl ProviderSnapshot {
+    /// Attach a human explanation for states like auth-required / not-running.
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
     }
 }
 
@@ -132,6 +142,7 @@ mod tests {
                 name: "Claude".into(),
                 brand_color: "#d9775f".into(),
                 state: ProviderState::Ok,
+                message: Some("on pace".into()),
                 refreshed_at: "2026-11-09T10:00:00Z".into(),
                 windows: vec![UsageWindow {
                     id: "5h".into(),
@@ -146,7 +157,7 @@ mod tests {
             }],
         };
         let s = serde_json::to_string(&snap).unwrap();
-        for key in ["usedPercent", "windowMinutes", "isKnown", "refreshedAt", "paceExpectedPercent"] {
+        for key in ["usedPercent", "windowMinutes", "isKnown", "refreshedAt", "paceExpectedPercent", "message"] {
             assert!(s.contains(&format!("\"{key}\"")), "missing key {key} in {s}");
         }
         assert!(s.contains("\"auth-required\"") == false);

@@ -98,6 +98,31 @@ pub fn now_epoch_ms() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
+pub const AG_GEMINI_HINT: &str =
+    "To track Antigravity with the IDE closed: install Gemini CLI once (`npm i -g @google/gemini-cli && gemini`), then enable Antigravity OAuth in Settings.";
+
+/// Honest offline hint for the Antigravity card (review of design: never a bare 0%).
+pub fn antigravity_offline_hint(oauth_enabled: bool, creds_exist: bool) -> Option<&'static str> {
+    match (oauth_enabled, creds_exist) {
+        (false, _) => Some(AG_GEMINI_HINT),
+        (true, false) => Some("Run `gemini` once to create the Google login, then keep Antigravity OAuth on in Settings."),
+        (true, true) => None, // remote path alive; its own errors carry messages
+    }
+}
+
+#[cfg(test)]
+mod auth_message_tests {
+    use super::*;
+
+    #[test]
+    fn antigravity_offline_hint_matches_setup() {
+        assert!(antigravity_offline_hint(false, false).unwrap().contains("gemini"));
+        assert!(antigravity_offline_hint(false, true).unwrap().contains("gemini"));
+        assert!(antigravity_offline_hint(true, false).unwrap().contains("Run `gemini`"));
+        assert_eq!(antigravity_offline_hint(true, true), None);
+    }
+}
+
 #[cfg(test)]
 mod token_cache_tests {
     use super::*;

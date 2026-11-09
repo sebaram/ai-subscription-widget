@@ -56,6 +56,7 @@ function ProviderBlock({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) 
         <span style={{ marginLeft: 'auto', color: '#8a93a6', fontSize: 10 }}>{resets ? `resets in ${resets}` : ''}</span>
       </div>
       {stateText && <div style={{ fontSize: 10, color: '#e2b93d', marginBottom: 5 }}>{stateText}</div>}
+      {p.message && <div style={{ fontSize: 10, color: '#8a93a6', marginBottom: 5, whiteSpace: 'pre-wrap' }}>{p.message}</div>}
       {p.windows.map((w) => <DetailRow key={w.id} w={w} th={th} />)}
     </div>
   );

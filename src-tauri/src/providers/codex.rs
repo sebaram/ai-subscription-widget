@@ -265,7 +265,12 @@ async fn usage_call(http: &reqwest::Client, token: &str, account_id: Option<&str
 
 pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     let auth = load_auth_from(&auth_path());
-    fetch_with_auth(ctx, auth).await
+    let snap = fetch_with_auth(ctx, auth).await;
+    if snap.state == ProviderState::AuthRequired {
+        snap.with_message("Run `codex` once to log in — its stored token is read, never written")
+    } else {
+        snap
+    }
 }
 
 async fn fetch_with_auth(ctx: &FetchCtx, auth: Option<CodexAuth>) -> ProviderSnapshot {

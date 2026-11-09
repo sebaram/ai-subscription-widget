@@ -14,6 +14,8 @@ pub struct Config {
     pub ollama_api_key: String,
     pub autostart: bool,
     pub antigravity_oauth: bool,
+    pub bar_thickness: u32,
+    pub font_size: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -75,6 +77,8 @@ pub fn defaults() -> Config {
         ollama_api_key: String::new(),
         autostart: true,
         antigravity_oauth: false,
+        bar_thickness: 5,
+        font_size: 10,
     }
 }
 
@@ -214,10 +218,15 @@ mod tests {
         cfg.poll_seconds = 60;
         cfg.ollama_api_key = "k".into();
         cfg.autostart = false;
+        cfg.bar_thickness = 7;
+        cfg.font_size = 12;
         cfg.providers[0].float_windows = Some(vec!["5h".into()]);
         let s = serde_json::to_string(&cfg).unwrap();
         assert!(s.contains("\"pollSeconds\""));
         assert!(s.contains("floatWindows"));
+        assert!(s.contains("\"barThickness\":7"));
+        assert!(s.contains("\"fontSize\":12"));
+        assert!(s.contains("antigravityOauth"));
         let back: Config = serde_json::from_str(&s).unwrap();
         assert_eq!(back, cfg);
     }
