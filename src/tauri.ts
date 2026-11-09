@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { UsageSnapshot, Config } from './types';
-import { mockSnapshot } from './mock';
+import { mockSnapshot, mockConfig } from './mock';
 
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -17,7 +17,7 @@ export function onSnapshot(cb: (s: UsageSnapshot) => void): Promise<() => void> 
 }
 
 export function onConfig(cb: (c: Config) => void): Promise<() => void> {
-  if (!isTauri()) return Promise.resolve(() => {});
+  if (!isTauri()) { cb(mockConfig()); return Promise.resolve(() => {}); }
   return listen<Config>('config-changed', (e) => cb(e.payload));
 }
 

@@ -3,6 +3,7 @@ import { onConfig, onSnapshot, windowLabel } from './tauri';
 import type { UsageSnapshot, Config } from './types';
 import { FloatBar } from './components/FloatBar';
 import { Popup } from './components/Popup';
+import { Settings } from './components/Settings';
 
 function App() {
   const [snap, setSnap] = useState<UsageSnapshot | null>(null);
@@ -21,6 +22,7 @@ function App() {
       <Popup snap={snap} cfg={cfg} />
     </div>
   );
+  if (label === 'settings') return <Settings cfg={cfg} />;
   return (
     <main className="container" style={{ fontSize: 13, color: '#e8eaf0' }}>
       <p>window: {label}{snap ? '' : ' (no snapshot yet)'}</p>

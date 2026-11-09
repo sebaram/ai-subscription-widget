@@ -1,4 +1,4 @@
-import type { ProviderSnapshot, UsageSnapshot, UsageWindow } from './types';
+import type { Config, ProviderSnapshot, UsageSnapshot, UsageWindow } from './types';
 
 function win(
   id: string,
@@ -53,4 +53,22 @@ export function mockSnapshot(drift: number): UsageSnapshot {
     },
   ];
   return { providers, refreshedAt: new Date().toISOString() };
+}
+
+export function mockConfig(): Config {
+  return {
+    providers: [
+      { id: 'claude', enabled: true, floatWindows: null },
+      { id: 'codex', enabled: true, floatWindows: null },
+      { id: 'antigravity', enabled: true, floatWindows: null },
+      { id: 'ollama', enabled: true, floatWindows: null },
+    ],
+    thresholds: { amber: 50, red: 80 },
+    pollSeconds: 300,
+    perProviderPoll: {},
+    floatBar: { opacity: 0.95, clickThrough: false, position: null },
+    theme: 'dark',
+    ollamaApiKey: '',
+    autostart: true,
+  };
 }
