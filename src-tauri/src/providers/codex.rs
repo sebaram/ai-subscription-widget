@@ -7,13 +7,21 @@ fn epoch_to_iso(secs: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(secs, 0).filter(|_| secs > 0).map(|d| d.to_rfc3339())
 }
 
-fn window_from(
-    id: &str,
-    title: &str,
-    w: &Value,
-) -> Option<UsageWindow> {
+fn window_identity(minutes: i64, positional: &str) -> (String, String) {
+    // Derive identity from the REAL window length; positional names lie now that
+    // OpenAI made the weekly window primary on some plans (live-verified 2026-11-09).
+    match minutes {
+        300 => ("5h".to_string(), "5h".to_string()),
+        10080 => ("week".to_string(), "wk".to_string()),
+        43200 => ("month".to_string(), "mo".to_string()),
+        _ => (positional.to_string(), positional.to_string()),
+    }
+}
+
+fn window_from(positional: &str, w: &Value) -> Option<UsageWindow> {
     let used = w.get("used_percent").and_then(|u| u.as_f64())?;
     let minutes = w.get("limit_window_seconds").and_then(|s| s.as_i64()).map(|s| (s / 60).max(1));
+    let (id, title) = window_identity(minutes.unwrap_or(0), positional);
     let resets_at = w
         .get("reset_at")
         .or_else(|| w.get("resets_at"))
@@ -24,8 +32,8 @@ fn window_from(
         .as_deref()
         .and_then(|r| minutes.and_then(|m| crate::model::pace_expected(m, r)));
     Some(UsageWindow {
-        id: id.into(),
-        title: title.into(),
+        id,
+        title,
         window_minutes: minutes,
         used_percent: Some(used),
         quota: None,
@@ -43,13 +51,24 @@ fn slugify(name: &str) -> String {
         .to_string()
 }
 
+fn window_from_named(named: Option<&str>, positional: &str, w: &Value) -> Option<UsageWindow> {
+    let mut out = window_from(positional, w)?;
+    if let Some(n) = named {
+        // model-specific limits keep their own identity (they would otherwise collide with the main 5h/week lanes)
+        out.id = n.to_string();
+        out.title = positional.to_string();
+    }
+    Some(out)
+}
+
 fn parse_usage(v: &Value) -> Vec<UsageWindow> {
     let mut windows = Vec::new();
     if let Some(rl) = v.get("rate_limit") {
-        if let Some(w) = rl.get("primary_window").and_then(|w| window_from("5h", "5h", w)) {
+        // null windows (no such limit on this plan) are skipped, never mapped
+        if let Some(w) = rl.get("primary_window").and_then(|w| window_from("5h", w)) {
             windows.push(w);
         }
-        if let Some(w) = rl.get("secondary_window").and_then(|w| window_from("week", "wk", w)) {
+        if let Some(w) = rl.get("secondary_window").and_then(|w| window_from("week", w)) {
             windows.push(w);
         }
     }
@@ -61,9 +80,10 @@ fn parse_usage(v: &Value) -> Vec<UsageWindow> {
                 .or_else(|| a.get("metered_feature").and_then(|f| f.as_str()))
                 .unwrap_or("extra limit");
             let rl = a.get("rate_limit");
+            let slug = slugify(name);
             let mapped = rl
-                .and_then(|r| r.get("primary_window").and_then(|w| window_from(&slugify(name), name, w)))
-                .or_else(|| rl.and_then(|r| window_from(&slugify(name), name, r)));
+                .and_then(|r| r.get("primary_window").and_then(|w| window_from_named(Some(&slug), name, w)))
+                .or_else(|| rl.and_then(|r| window_from_named(Some(&slug), name, r)));
             if let Some(w) = mapped {
                 windows.push(w);
             }
@@ -386,6 +406,31 @@ mod tests {
         assert_eq!(windows[1].id, "week");
         assert_eq!(windows[1].window_minutes, Some(10080));
         assert!((windows[1].used_percent.unwrap() - 33.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn codex_pro_weekly_primary_keeps_week_identity_not_5h() {
+        // live-verified 2026-11-09: OpenAI folded pro into a single weekly primary, no 5h window
+        let v = json!({"rate_limit": {
+            "primary_window": {"used_percent": 87, "reset_at": 1794445045i64, "limit_window_seconds": 604800},
+            "secondary_window": null
+        }});
+        let windows = parse_usage(&v);
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].id, "week");
+        assert_eq!(windows[0].title, "wk");
+        assert_eq!(windows[0].window_minutes, Some(10080));
+        assert!((windows[0].used_percent.unwrap() - 87.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn codex_unknown_window_keeps_informational_minute_length() {
+        let v = json!({"rate_limit": {
+            "primary_window": {"used_percent": 5, "reset_at": 100i64, "limit_window_seconds": 900}
+        }});
+        let windows = parse_usage(&v);
+        assert_eq!(windows[0].id, "5h"); // positional fallback for unknown cadence
+        assert_eq!(windows[0].window_minutes, Some(15));
     }
 
     #[test]
