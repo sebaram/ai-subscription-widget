@@ -16,11 +16,13 @@
         "title": "AI Usage",
         "width": 352,
         "height": 200,
+        "minWidth": 250,
+        "minHeight": 110,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "shadow": false
       },
       {

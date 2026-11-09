@@ -18,11 +18,15 @@ function App() {
   const label = windowLabel();
   if (label === 'floatbar') return <FloatBar snap={snap} cfg={cfg} />;
   if (label === 'popup') return (
-    <div style={{ padding: 8, background: 'transparent' }}>
+    <div style={{ height: '100%', boxSizing: 'border-box' }}>
       <Popup snap={snap} cfg={cfg} />
     </div>
   );
-  if (label === 'settings') return <Settings cfg={cfg} />;
+  if (label === 'settings') return (
+    <div style={{ height: '100%', boxSizing: 'border-box', background: '#0e1116', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Settings cfg={cfg} />
+    </div>
+  );
   return (
     <main className="container" style={{ fontSize: 13, color: '#e8eaf0' }}>
       <p>window: {label}{snap ? '' : ' (no snapshot yet)'}</p>

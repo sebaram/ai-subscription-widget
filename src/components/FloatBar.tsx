@@ -61,7 +61,10 @@ export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Confi
       style={{
         background: 'rgba(23,28,38,0.96)', border: '1px solid #2a313e', borderRadius: 12,
         padding: '8px 12px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif",
-        opacity: (cfg?.floatBar.opacity ?? 0.95), minWidth: 320, cursor: 'default', userSelect: 'none',
+        opacity: (cfg?.floatBar.opacity ?? 0.95),
+        width: '100%', height: '100%', boxSizing: 'border-box',
+        display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        cursor: 'default', userSelect: 'none', overflow: 'hidden',
       }}
     >
       {(snap?.providers ?? []).map((p) => (
