@@ -1,49 +1,34 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect, useState } from 'react';
+import { onConfig, onSnapshot, windowLabel } from './tauri';
+import type { UsageSnapshot, Config } from './types';
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [snap, setSnap] = useState<UsageSnapshot | null>(null);
+  const [cfg, setCfg] = useState<Config | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    const u1 = onSnapshot(setSnap);
+    const u2 = onConfig(setCfg);
+    return () => { u1.then((f) => f()); u2.then((f) => f()); };
+  }, []);
 
+  const label = windowLabel();
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+    <main className="container" style={{ fontSize: 13, color: '#e8eaf0' }}>
+      <p>window: {label}{snap ? '' : ' (no snapshot yet)'}</p>
+      <ul>
+        {(snap?.providers ?? []).map((p) => (
+          <li key={p.id}>
+            <span style={{ color: p.brandColor }}>●</span> {p.name} [{p.state}]{' '}
+            {p.windows.map((w) => (
+              <span key={w.id}>
+                {w.title} {w.isKnown ? `${w.usedPercent!.toFixed(1)}%` : '— (Unavailable)'}{' '}
+              </span>
+            ))}
+          </li>
+        ))}
+      </ul>
+      {cfg && <p>poll {cfg.pollSeconds}s · amber {cfg.thresholds.amber}% · red {cfg.thresholds.red}%</p>}
     </main>
   );
 }
