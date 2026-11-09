@@ -96,6 +96,37 @@ fn open_popup(app: tauri::AppHandle) {
     toggle_popup_at(&app, x, 200.0);
 }
 
+/// Float-bar click: toggle the details page (click to show, click again to
+/// close — per Juyoung's request). Positioned relative to the float bar so it
+/// never drifts to the wrong monitor.
+#[tauri::command]
+fn toggle_popup(app: tauri::AppHandle) {
+    let Some(popup) = app.get_webview_window("popup") else { return };
+    if popup.is_visible().unwrap_or(false) {
+        let _ = popup.hide();
+        return;
+    }
+    let (cursor, w_size) = app
+        .get_webview_window("floatbar")
+        .and_then(|f| {
+            let pos = f.outer_position().ok()?;
+            let size = f.outer_size().ok()?;
+            Some((pos, size))
+        })
+        .map(|(pos, size)| ((pos.x, pos.y), (size.width, size.height)))
+        .unwrap_or(((154, 154), (352, 200)));
+    let cx = (cursor.0 as i64 + w_size.0 as i64) as f64 + 8.0;
+    let cy = cursor.1 as f64;
+    if let Ok(Some(monitor)) = popup.current_monitor() {
+        let size = monitor.size();
+        let scale = popup.scale_factor().unwrap_or(1.0);
+        let (x, y) = clamped_popup_position(cx, cy, 430.0 * scale, 600.0 * scale, size.width as f64, size.height as f64);
+        let _ = popup.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x as i32, y as i32)));
+    }
+    let _ = popup.show();
+    let _ = popup.set_focus();
+}
+
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) {
     show_settings(&app);
@@ -156,11 +187,35 @@ pub fn run() {
 
             let cfg0 = config::load();
             apply_autostart(app.handle(), cfg0.autostart);
-            if let Some((x, y)) = cfg0.float_bar.position {
-                if let Some(float_window) = app.get_webview_window("floatbar") {
-                    let _ = float_window.set_position(tauri::Position::Physical(
-                        tauri::PhysicalPosition::new(x as i32, y as i32),
-                    ));
+            if let Some(float_window) = app.get_webview_window("floatbar") {
+                // Restore position only if it still lands on a real monitor — saved
+                // positions go stale when display layouts change (this exact bug).
+                let mut positioned = false;
+                if let Some((x, y)) = cfg0.float_bar.position {
+                    let on_screen = float_window
+                        .available_monitors()
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|m| {
+                            let o = m.position();
+                            let s = m.size();
+                            x >= o.x as f64 && y >= o.y as f64
+                                && (x + 20.0) <= (o.x as f64 + s.width as f64)
+                                && (y + 20.0) <= (o.y as f64 + s.height as f64)
+                        });
+                    if on_screen {
+                        let _ = float_window.set_position(tauri::Position::Physical(
+                            tauri::PhysicalPosition::new(x as i32, y as i32),
+                        ));
+                        positioned = true;
+                    }
+                }
+                if !positioned && float_window.outer_position().map(|p| p.x < -3000 || p.y > 1600 || p.x > 3000).unwrap_or(false) {
+                    // stale spot: reset to the primary monitor's top-left
+                    let _ = float_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(24, 24)));
+                    let mut cfg1 = cfg0.clone();
+                    cfg1.float_bar.position = Some((24.0, 24.0));
+                    config::save(&cfg1);
                 }
             }
 
@@ -240,7 +295,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet, refresh_now, open_popup, open_settings, hide_me, save_config,
-            save_float_position, set_click_through, get_config
+            save_float_position, set_click_through, get_config, toggle_popup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

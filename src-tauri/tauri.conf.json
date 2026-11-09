@@ -44,7 +44,8 @@
         "height": 700,
         "decorations": false,
         "skipTaskbar": true,
-        "resizable": true,
+        "resizable": false,
+        "shadow": false,
         "visible": false
       }
     ],

@@ -1,7 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect, useRef } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
-import { isTauri, openPopup, setClickThrough } from '../tauri';
+import { isTauri, setClickThrough, showPopup } from '../tauri';
 import { floatRows } from '../floatWindows';
 import { UsageBar, type BarStyle } from './UsageBar';
 import { ProviderLogo } from '../logos';
@@ -43,23 +43,30 @@ function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
 
 export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Config | null }) {
   const clickThrough = cfg?.floatBar.clickThrough ?? false;
-  const downAt = useRef<{ x: number; y: number } | null>(null);
+  const downAt = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
     void setClickThrough(clickThrough);
   }, [clickThrough]);
+
   return (
     <div
       onMouseDown={(e) => {
-        downAt.current = { x: e.clientX, y: e.clientY };
-        if (isTauri()) getCurrentWindow().startDragging().catch(() => {});
+        downAt.current = { x: e.clientX, y: e.clientY, dragging: false };
       }}
-      onMouseUp={(e) => {
+      onMouseMove={(e) => {
+        const d = downAt.current;
+        if (!d) return;
+        if (!d.dragging && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 && isTauri()) {
+          d.dragging = true;
+          getCurrentWindow().startDragging().catch(() => {});
+        }
+      }}
+      onMouseUp={() => {
         const d = downAt.current;
         downAt.current = null;
-        // click-without-drag opens the popup (review I2; threshold absorbs tiny jitters)
-        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) {
-          void openPopup();
+        if (d && !d.dragging) {
+          void showPopup();
         }
       }}
       style={{
