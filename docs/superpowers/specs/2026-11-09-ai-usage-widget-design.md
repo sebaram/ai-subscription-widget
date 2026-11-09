@@ -77,8 +77,12 @@ no installer/packaging story is required beyond `cargo tauri dev/build`.
 - Windows 11, no admin rights, no global proxy interference with loopback
   probes (loopback traffic must bypass any system proxy).
 - No new secrets stored beyond what the user enters (Ollama API key, stored
-  under user profile; Claude/Codex credentials are already on disk and only
-  read).
+  under user profile). Claude/Codex credential files are owned by their CLI
+  tools: **read-only** — fetchers may use a stored refresh_token to refresh an
+  expired access token **in memory** to complete the current call, but never
+  write back into `~/.codex/auth.json` / `~/.claude/.credentials.json`.
+  Refresh impossible and token dead ⇒ provider enters its honest re-auth
+  state.
 - Poll rates must respect provider limits (Ollama API: 10 req/min → poll
   ≥ 60 s; default global poll 5 min).
 
@@ -96,10 +100,16 @@ no installer/packaging story is required beyond `cargo tauri dev/build`.
 
 ## Provider specs
 
+**Authoritative reference for all header names, field paths, and response
+shapes: `docs/research/provider-api-details.md`** (extracted 2026-11-09 from
+CodexBar + Win-CodexBar source, with file citations). The sections below are
+the summary; the reference wins on any conflict.
+
 ### Claude (two mechanisms, OAuth preferred)
 
 - **OAuth:** `GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1`
-  with `Authorization: Bearer <token>` + anthropic beta header. Token read
+  with `Authorization: Bearer <token>`, `anthropic-beta: oauth-2025-04-20`,
+  Claude-CLI-style user agent (exact values in the reference). Token read
   from `~/.claude/.credentials.json`. JSON: `five_hour{utilization,
   resets_at}`, `seven_day{utilization, resets_at}`, plus
   `seven_day_oauth_apps`, `seven_day_opus`, `seven_day_sonnet`, `extra_usage`.
@@ -142,6 +152,11 @@ no installer/packaging story is required beyond `cargo tauri dev/build`.
   https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
   with Google OAuth bearer from `~/.gemini/oauth_creds.json`.
 - **No process + no OAuth file** ⇒ card state "Open Antigravity to track".
+- **Float-bar selection rule (my call):** when the payload has multiple model
+  groups ("Gemini Models", "Claude and GPT models"), the float bar shows the
+  **most-constrained (highest used%) group per window type**, so the glance
+  can never look safer than reality; the popup lists every group's rows with
+  group labels.
 
 ### Ollama Cloud
 
@@ -171,6 +186,8 @@ no installer/packaging story is required beyond `cargo tauri dev/build`.
 - Windows: float bar (always-on-top, no taskbar entry, optional
   click-through, frameless, rounded), popup (frameless, opens on click /
   tray), settings. Positions persisted.
+- **Auto-start at login (my call):** on by default — it's an always-on
+  tool; config boolean `autostart` + settings toggle controls it.
 - Thresholds: green < 50 %, amber 50–80, red > 80 (configurable). Pace marker
   = expected used % (elapsed / window; simple linear, no workday logic in v1).
 
