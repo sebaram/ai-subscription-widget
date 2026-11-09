@@ -70,6 +70,14 @@ fn open_settings(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn save_config(cfg: crate::config::Config, app: tauri::AppHandle) -> Result<(), String> {
+    crate::config::save(&cfg);
+    use tauri::Emitter;
+    let _ = app.emit("config-changed", &cfg);
+    Ok(())
+}
+
+#[tauri::command]
 fn hide_me(webview: tauri::WebviewWindow) {
     let _ = webview.hide();
 }
@@ -124,7 +132,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet, refresh_now, open_popup, open_settings, hide_me
+            greet, refresh_now, open_popup, open_settings, hide_me, save_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

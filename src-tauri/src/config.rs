@@ -181,4 +181,20 @@ mod tests {
         let back: Config = serde_json::from_str(&s).unwrap();
         assert_eq!(back, cfg);
     }
+
+    #[test]
+    fn save_then_load_roundtrip_preserves_fields() {
+        let p = tmp_path("roundtrip");
+        let mut cfg = defaults();
+        cfg.poll_seconds = 45;
+        cfg.ollama_api_key = "ollama-secret".into();
+        cfg.providers = vec![
+            ProviderCfg { id: "codex".into(), enabled: true, float_windows: Some(vec!["week".into()]) },
+            ProviderCfg { id: "claude".into(), enabled: false, float_windows: None },
+        ];
+        save_at(&p, &cfg);
+        let back = load_at(&p);
+        assert_eq!(back, cfg);
+        std::fs::remove_file(&p).ok();
+    }
 }
