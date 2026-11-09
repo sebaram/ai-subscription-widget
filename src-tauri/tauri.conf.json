@@ -12,9 +12,38 @@
   "app": {
     "windows": [
       {
-        "title": "ai-usage-scaffold",
-        "width": 800,
-        "height": 600
+        "label": "floatbar",
+        "title": "AI Usage",
+        "width": 352,
+        "height": 200,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
+      },
+      {
+        "label": "popup",
+        "title": "AI Usage",
+        "width": 430,
+        "height": 600,
+        "decorations": false,
+        "transparent": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "settings",
+        "title": "AI Usage — Settings",
+        "width": 470,
+        "height": 620,
+        "decorations": false,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
       }
     ],
     "security": {
