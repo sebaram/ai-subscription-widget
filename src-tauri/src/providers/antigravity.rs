@@ -129,8 +129,48 @@ fn parse_summary(v: &Value) -> Vec<UsageWindow> {
         .into_iter()
         .map(|(id, title, minutes, used, resets)| make_window(&id, &title, minutes, used, resets))
         .collect();
+    // Per-model group lanes (Juyoung: gemini / others / argon should be
+    // individually visible): each group shows its own most-constrained bucket.
+    for g in groups {
+        let display = g
+            .get("displayName")
+            .or_else(|| g.get("name"))
+            .and_then(|d| d.as_str())
+            .unwrap_or("models")
+            .to_string();
+        let Some(buckets) = g.get("buckets").and_then(|b| b.as_array()) else { continue };
+        let mut worst_used: Option<(f64, Option<String>, Option<i64>, String)> = None;
+        for b in buckets {
+            if b.get("disabled").and_then(|d| d.as_bool()) == Some(true) { continue; }
+            let Some(fraction) = fraction_of(b) else { continue };
+            let used = used_percent_from_fraction(fraction);
+            let (wid, _wtitle, minutes) = window_mapping(
+                b.get("window").unwrap_or_else(|| b.get("bucketId").or_else(|| b.get("id")).unwrap_or(&Value::Null)),
+            );
+            let resets = reset_time_of(b);
+            let replace = match &worst_used {
+                Some((u, ..)) => used > *u,
+                None => true,
+            };
+            if replace {
+                worst_used = Some((used, resets.clone(), minutes, wid.clone()));
+            }
+        }
+        let Some((used, resets, minutes, _)) = worst_used else { continue };
+        let (short_id, label): (String, String) = match display.as_str() {
+            "Gemini Models" => ("g:gemini".to_string(), "Gemini".to_string()),
+            "Claude and GPT models" => ("g:others".to_string(), "Others".to_string()),
+            other if other.contains("Argon") => ("g:argon".to_string(), "Argon".to_string()),
+            other => (format!("g:{}", slugify_name(other)), other.to_string()),
+        };
+        windows.push(make_window(&short_id, &label, minutes, used, resets));
+    }
     windows.extend(extras);
     windows
+}
+
+fn slugify_name(s: &str) -> String {
+    s.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect::<String>().trim_matches('-').to_string()
 }
 
 /// Legacy GetUserStatus fallback: per-model quotas.
@@ -491,6 +531,13 @@ mod tests {
         let five = windows.iter().find(|w| w.id == "5h").expect("5h float window");
         assert!((five.used_percent.unwrap() - 0.0).abs() < 1e-6);
         assert!(windows.iter().any(|w| w.title.contains("Argon")));
+        // per-model group lanes: gemini ~0.07% used, others 0%, argon 83.27%
+        let gemini = windows.iter().find(|w| w.id == "g:gemini").expect("gemini lane");
+        assert!((gemini.used_percent.unwrap() - 0.066).abs() < 0.01, "gemini worst bucket");
+        let others = windows.iter().find(|w| w.id == "g:others").expect("others lane");
+        assert!((others.used_percent.unwrap() - 0.0).abs() < 1e-6);
+        let argon = windows.iter().find(|w| w.id == "g:argon").expect("argon lane");
+        assert!((argon.used_percent.unwrap() - 83.27).abs() < 0.05);
     }
 
     #[test]
