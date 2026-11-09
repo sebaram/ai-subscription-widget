@@ -54,4 +54,6 @@ export interface Config {
   barThickness: number;
   /** Visual: base font size in px. */
   fontSize: number;
+  /** Keep absent windows (e.g. Claude five_hour:null) visible as "—" rows. */
+  showMissingWindows: boolean;
 }

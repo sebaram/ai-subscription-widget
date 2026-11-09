@@ -25,6 +25,7 @@ const cfgBase: Config = {
   antigravityOauth: false,
   barThickness: 5,
   fontSize: 10,
+  showMissingWindows: false,
 };
 
 describe('floatRows', () => {

@@ -11,13 +11,27 @@ const LANES: [(&str, &str, &str, i64); 5] = [
     ("seven_day_sonnet", "sonnet", "wk sonnet", 10080),
 ];
 
-fn parse_usage(v: &Value) -> Vec<UsageWindow> {
+fn parse_usage(v: &Value, show_missing: bool) -> Vec<UsageWindow> {
     let mut windows = Vec::new();
     for (key, id, title, minutes) in LANES {
-        // A null lane = the API says this window doesn't exist for the account:
-        // omit the row entirely instead of a permanent "—" (live-verified 2026-11-09).
+        // A null lane = the API says this window doesn't exist for the account.
+        // Hidden by default; shown as an honest "—" row when the user opts in.
         match v.get(key) {
-            None | Some(Value::Null) => continue,
+            None | Some(Value::Null) => {
+                if show_missing {
+                    windows.push(UsageWindow {
+                        id: id.into(),
+                        title: title.into(),
+                        window_minutes: Some(minutes),
+                        used_percent: None,
+                        quota: None,
+                        resets_at: None,
+                        pace_expected_percent: None,
+                        is_known: false,
+                    });
+                }
+                continue;
+            }
             Some(lane) => {
                 let utilization = lane.get("utilization").and_then(|u| u.as_f64());
                 let resets_at = lane.get("resets_at").and_then(|r| r.as_str()).map(String::from);
@@ -240,7 +254,7 @@ async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnaps
     };
     let windows = match usage_call(&ctx.http, &token).await {
         Ok(v) => {
-            let windows = parse_usage(&v);
+            let windows = parse_usage(&v, ctx.cfg.show_missing_windows);
             if windows.is_empty() {
                 return snapshot_for(ProviderId::Claude, ProviderState::NoData, vec![]);
             }
@@ -254,7 +268,7 @@ async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnaps
                         store_claude_token(a.clone(), rotated.unwrap_or_else(|| rt.clone()), exp_in);
                         token = a;
                         if let Ok(v) = usage_call(&ctx.http, &token).await {
-                            let windows = parse_usage(&v);
+                            let windows = parse_usage(&v, ctx.cfg.show_missing_windows);
                             if windows.is_empty() {
                                 return snapshot_for(ProviderId::Claude, ProviderState::NoData, vec![]);
                             }
@@ -294,7 +308,7 @@ mod tests {
 
     #[test]
     fn claude_fixture_maps_5h_and_week() {
-        let windows = parse_usage(&serde_json::from_str::<Value>(FIXTURE).unwrap());
+        let windows = parse_usage(&serde_json::from_str::<Value>(FIXTURE).unwrap(), false);
         assert!(windows.len() >= 3);
         let five = &windows[0];
         assert_eq!(five.id, "5h");
@@ -311,14 +325,14 @@ mod tests {
     #[test]
     fn claude_extras_only_when_present() {
         let minimal = json!({"five_hour": {"utilization": 70.0, "resets_at": "2026-11-09T15:00:00Z"}});
-        let windows = parse_usage(&minimal);
+        let windows = parse_usage(&minimal, false);
         assert_eq!(windows.len(), 1);
         assert!(!windows.iter().any(|w| w.id != "5h"));
     }
 
     #[test]
     fn claude_null_utilization_is_unknown_not_zero() {
-        let windows = parse_usage(&serde_json::from_str::<Value>(MINIMAL).unwrap());
+        let windows = parse_usage(&serde_json::from_str::<Value>(MINIMAL).unwrap(), false);
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].used_percent, None);
         assert!(!windows[0].is_known);
@@ -328,14 +342,14 @@ mod tests {
     fn claude_null_lane_is_omitted_not_dash() {
         // live response 2026-11-09: "five_hour": null → no such window at all
         let v = json!({"five_hour": null, "seven_day": {"utilization": 66.0, "resets_at": "2026-11-12T00:00:00Z"}});
-        let windows = parse_usage(&v);
+        let windows = parse_usage(&v, false);
         assert_eq!(windows.len(), 1, "absent lane must vanish, not render —");
         assert_eq!(windows[0].id, "week");
     }
 
     #[test]
     fn claude_extra_usage_maps_quota() {
-        let windows = parse_usage(&serde_json::from_str::<Value>(FIXTURE).unwrap());
+        let windows = parse_usage(&serde_json::from_str::<Value>(FIXTURE).unwrap(), false);
         let extra = windows.iter().find(|w| w.id == "extra").expect("extra usage window");
         assert_eq!(extra.quota.as_ref().unwrap().used, "$5.00");
         assert_eq!(extra.quota.as_ref().unwrap().total, "$10.00");
@@ -345,7 +359,7 @@ mod tests {
     #[test]
     fn claude_disabled_extra_usage_omitted() {
         let v = json!({"extra_usage": {"is_enabled": false, "monthly_limit": 10.0, "used_credits": 5.0}});
-        assert!(parse_usage(&v).is_empty());
+        assert!(parse_usage(&v, false).is_empty());
     }
 
     #[tokio::test]

@@ -16,6 +16,8 @@ pub struct Config {
     pub antigravity_oauth: bool,
     pub bar_thickness: u32,
     pub font_size: u8,
+    /// Keep absent windows visible as "—" rows (Claude's five_hour:null case).
+    pub show_missing_windows: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -79,6 +81,7 @@ pub fn defaults() -> Config {
         antigravity_oauth: false,
         bar_thickness: 5,
         font_size: 10,
+        show_missing_windows: false,
     }
 }
 
