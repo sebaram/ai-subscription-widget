@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { onConfig, onSnapshot, windowLabel } from './tauri';
 import type { UsageSnapshot, Config } from './types';
 import { FloatBar } from './components/FloatBar';
+import { Popup } from './components/Popup';
 
 function App() {
   const [snap, setSnap] = useState<UsageSnapshot | null>(null);
@@ -15,6 +16,11 @@ function App() {
 
   const label = windowLabel();
   if (label === 'floatbar') return <FloatBar snap={snap} cfg={cfg} />;
+  if (label === 'popup') return (
+    <div style={{ padding: 8, background: 'transparent' }}>
+      <Popup snap={snap} cfg={cfg} />
+    </div>
+  );
   return (
     <main className="container" style={{ fontSize: 13, color: '#e8eaf0' }}>
       <p>window: {label}{snap ? '' : ' (no snapshot yet)'}</p>

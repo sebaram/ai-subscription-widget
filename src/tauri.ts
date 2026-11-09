@@ -7,7 +7,8 @@ import { mockSnapshot } from './mock';
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export function windowLabel(): string {
-  return isTauri() ? getCurrentWebviewWindow().label : 'floatbar';
+  if (isTauri()) return getCurrentWebviewWindow().label;
+  return new URLSearchParams(location.search).get('window') ?? 'floatbar';
 }
 
 export function onSnapshot(cb: (s: UsageSnapshot) => void): Promise<() => void> {
