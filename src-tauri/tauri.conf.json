@@ -40,11 +40,11 @@
       {
         "label": "settings",
         "title": "AI Usage — Settings",
-        "width": 470,
-        "height": 620,
+        "width": 500,
+        "height": 700,
         "decorations": false,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "visible": false
       }
     ],

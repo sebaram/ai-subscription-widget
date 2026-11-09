@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Config, ProviderCfg, UsageSnapshot } from '../types';
-import { refreshNow, saveConfig } from '../tauri';
+import { hideMe, refreshNow, saveConfig } from '../tauri';
 
 const WINDOWS = ['5h', 'week', 'month'];
 
@@ -43,6 +43,11 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
     if (cfg && !dirty) setDraft(cfg);
   }, [cfg, dirty]);
   useEffect(() => { if (!draft && cfg) setDraft(cfg); }, [cfg, draft]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void hideMe(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   if (!draft) return null;
 
   const up = (patch: Partial<Config>) => { setDirty(true); setSaved(false); setDraft({ ...draft, ...patch }); };
@@ -53,21 +58,23 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
 
   return (
     <div style={{
-      background: 'rgba(23,28,38,0.98)', border: '1px solid #2a313e', borderRadius: 14,
-      padding: 16, color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif", width: 430,
-      height: '100%', boxSizing: 'border-box', userSelect: 'none', overflowY: 'auto' as const,
+      background: 'rgba(23,28,38,0.98)', border: '1px solid #2a313e', borderRadius: 0,
+      padding: '12px 16px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif",
+      height: '100%', boxSizing: 'border-box', userSelect: 'none',
+      overflowY: 'auto' as const, overflowX: 'hidden' as const, display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, position: 'sticky', top: 0, background: 'rgba(23,28,38,0.98)', paddingBottom: 8 }}>
         <strong style={{ fontSize: 14 }}>Settings</strong>
         <button style={{ marginLeft: 'auto', cursor: 'pointer' }} onClick={async () => { await refreshNow(); setRefreshed(true); setTimeout(() => setRefreshed(false), 2000); }}>Refresh now</button>
         <span style={{ fontSize: 10, color: '#8a93a6' }}>{refreshed ? 'refreshing…' : ''}</span>
+        <button title="Close (Esc)" style={{ cursor: 'pointer', width: 28 }} onClick={() => void hideMe()}>✕</button>
       </div>
 
       <Section title="Providers" />
       {draft.providers.map((p) => <ProviderRow key={p.id} pcfg={p} set={setProvider} />)}
 
       <Section title="Connection" />
-      <label style={label}>global poll seconds <input type="number" value={draft.pollSeconds} onChange={(e) => up({ pollSeconds: num(e.currentTarget.value, draft.pollSeconds) })} /></label>
+      <label style={label}>global poll seconds <input type="number" style={{ width: 90 }} value={draft.pollSeconds} onChange={(e) => up({ pollSeconds: num(e.currentTarget.value, draft.pollSeconds) })} /></label>
       <div style={{ fontSize: 10, color: '#8a93a6', marginBottom: 6 }}>Ollama is capped at ≥60s (API limit 10/min).</div>
       <label style={label}>Ollama Cloud API key <input type="password" style={{ width: 180 }} value={draft.ollamaApiKey} onChange={(e) => up({ ollamaApiKey: e.currentTarget.value })} placeholder="(from ollama.com/settings/keys)" /></label>
       <label style={label}><input type="checkbox" checked={draft.antigravityOauth} onChange={(e) => up({ antigravityOauth: e.currentTarget.checked })} /> Antigravity: track even when the IDE is closed (read-only use of Antigravity's own saved Google login)</label>
@@ -76,7 +83,7 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
       <label style={label}>bar thickness <input type="range" min="3" max="14" value={draft.barThickness} onChange={(e) => up({ barThickness: num(e.currentTarget.value, draft.barThickness) })} /> <span style={{ width: 20 }}>{draft.barThickness}px</span></label>
       <label style={label}>font size <input type="number" min="7" max="18" value={draft.fontSize} onChange={(e) => up({ fontSize: num(e.currentTarget.value, draft.fontSize) })} />px</label>
       <label style={label}>opacity <input type="range" min="0.2" max="1" step="0.05" value={draft.floatBar.opacity} onChange={(e) => up({ floatBar: { ...draft.floatBar, opacity: num(e.currentTarget.value, draft.floatBar.opacity) } })} /> <span style={{ width: 30 }}>{Math.round(draft.floatBar.opacity * 100)}%</span></label>
-      <label style={label}>amber at <input type="number" value={draft.thresholds.amber} onChange={(e) => up({ thresholds: { ...draft.thresholds, amber: num(e.currentTarget.value, draft.thresholds.amber) } })} />% · red at <input type="number" value={draft.thresholds.red} onChange={(e) => up({ thresholds: { ...draft.thresholds, red: num(e.currentTarget.value, draft.thresholds.red) } })} />%</label>
+      <label style={label}>amber at <input type="number" style={{ width: 64 }} value={draft.thresholds.amber} onChange={(e) => up({ thresholds: { ...draft.thresholds, amber: num(e.currentTarget.value, draft.thresholds.amber) } })} />% · red at <input type="number" style={{ width: 64 }} value={draft.thresholds.red} onChange={(e) => up({ thresholds: { ...draft.thresholds, red: num(e.currentTarget.value, draft.thresholds.red) } })} />%</label>
       <label style={label}>click-through float bar <input type="checkbox" checked={draft.floatBar.clickThrough} onChange={(e) => up({ floatBar: { ...draft.floatBar, clickThrough: e.currentTarget.checked } })} /></label>
       <label style={label}><input type="checkbox" checked={draft.autostart} onChange={(e) => up({ autostart: e.currentTarget.checked })} /> start with Windows</label>
 
