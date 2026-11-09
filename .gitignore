@@ -1,4 +1,17 @@
+.env
 .superpowers/
 node_modules/
 dist/
+dist-ssr/
+*.local
+logs/
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.sw?
 target/
+src-tauri/gen/
