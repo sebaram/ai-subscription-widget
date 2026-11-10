@@ -39,7 +39,7 @@ function Row({ p, cfg, first }: { p: ProviderSnapshot; cfg: Config | null; first
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         {floatRows(p, cfg).map((w) => (
-          <UsageBar key={w.id} w={w} th={cfg?.thresholds ?? DEFAULT_TH} bs={bs} />
+          <UsageBar key={w.id} w={w} th={cfg?.thresholds ?? DEFAULT_TH} bs={bs} showReset={cfg?.showResetTime ?? true} />
         ))}
       </div>
     </div>

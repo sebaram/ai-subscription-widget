@@ -26,6 +26,7 @@ const cfgBase: Config = {
   barThickness: 5,
   fontSize: 10,
   showMissingWindows: false,
+  showResetTime: true,
 };
 
 describe('floatRows', () => {

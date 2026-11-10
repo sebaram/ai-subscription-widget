@@ -56,4 +56,6 @@ export interface Config {
   fontSize: number;
   /** Keep absent windows (e.g. Claude five_hour:null) visible as "—" rows. */
   showMissingWindows: boolean;
+  /** Show time-until-reset next to each lane's percentage. */
+  showResetTime: boolean;
 }

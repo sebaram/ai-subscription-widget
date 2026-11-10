@@ -74,5 +74,6 @@ export function mockConfig(): Config {
     barThickness: 5,
     fontSize: 10,
     showMissingWindows: false,
+    showResetTime: true,
   };
 }

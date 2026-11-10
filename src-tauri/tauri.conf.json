@@ -14,8 +14,8 @@
       {
         "label": "floatbar",
         "title": "AI Usage",
-        "width": 352,
-        "height": 260,
+        "width": 380,
+        "height": 330,
         "minWidth": 250,
         "minHeight": 110,
         "decorations": false,

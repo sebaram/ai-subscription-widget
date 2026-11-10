@@ -18,6 +18,8 @@ pub struct Config {
     pub font_size: u8,
     /// Keep absent windows visible as "—" rows (Claude's five_hour:null case).
     pub show_missing_windows: bool,
+    /// Show time-until-reset next to each lane's percentage.
+    pub show_reset_time: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -88,6 +90,7 @@ pub fn defaults() -> Config {
         bar_thickness: 5,
         font_size: 10,
         show_missing_windows: false,
+        show_reset_time: true,
     }
 }
 
@@ -236,6 +239,7 @@ mod tests {
         cfg.autostart = false;
         cfg.bar_thickness = 7;
         cfg.font_size = 12;
+        assert!(serde_json::to_string(&cfg).unwrap().contains("\"showResetTime\":true"));
         cfg.providers[0].float_windows = Some(vec!["5h".into()]);
         let s = serde_json::to_string(&cfg).unwrap();
         assert!(s.contains("\"pollSeconds\""));
