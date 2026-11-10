@@ -17,15 +17,19 @@ const STATE_TEXT: Record<string, string> = {
   disabled: '',
 };
 
-function Row({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
+function Row({ p, cfg, first }: { p: ProviderSnapshot; cfg: Config | null; first: boolean }) {
   const stateText = p.state === 'ok' ? '' : (STATE_TEXT[p.state] ?? p.state);
   const bs: BarStyle = {
     thickness: cfg?.barThickness ?? DEFAULT_BS.thickness,
     font: cfg?.fontSize ?? DEFAULT_BS.font,
   };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: bs.font * 0.4 + 1 + 'px 0' }}>
-      <div style={{ width: 96, display: 'flex', flexDirection: 'column', flexShrink: 0 }}
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 8,
+      padding: bs.font * 0.4 + 1 + 'px 0',
+      borderTop: first ? 'none' : '1px solid rgba(138,147,166,0.14)',
+    }}>
+      <div style={{ width: 96, display: 'flex', flexDirection: 'column', flexShrink: 0, paddingTop: Math.max(0, bs.thickness - bs.font) / 2 + 1 }}
         title={p.name + (stateText ? ` — ${stateText}` : '')}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <ProviderLogo id={p.id} color={p.brandColor} />
@@ -80,8 +84,8 @@ export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Confi
         cursor: 'default', userSelect: 'none', overflow: 'hidden',
       }}
     >
-      {(snap?.providers ?? []).map((p) => (
-        <Row key={p.id} p={p} cfg={cfg} />
+      {(snap?.providers ?? []).map((p, i) => (
+        <Row key={p.id} p={p} cfg={cfg} first={i === 0} />
       ))}
     </div>
   );
