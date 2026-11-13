@@ -26,17 +26,18 @@ function DetailRow({ w, th }: { w: UsageWindow; th: { amber: number; red: number
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
-        <span style={{ width: w.id.startsWith('group:') ? 76 : 30, color: '#8a93a6', fontSize: 10 }}>{w.title}</span>
+        {/* one fixed label width so every bar starts and ends at the same x */}
+        <span title={w.title} style={{ width: 76, flexShrink: 0, color: '#8a93a6', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.title}</span>
         <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#2a313e', position: 'relative' }}>
           <div style={{ width: `${fillPct}%`, height: '100%', borderRadius: 4, background: w.isKnown && w.usedPercent !== null ? colorFor(w.usedPercent, th) : 'transparent' }} />
           {w.paceExpectedPercent !== null && (
             <div title="pace marker: where you'd normally be" style={{ position: 'absolute', left: `${w.paceExpectedPercent}%`, top: -2, width: 2, height: 12, background: status === 'hot' ? '#e8503a' : '#8a93a6', borderRadius: 1 }} />
           )}
         </div>
-        <span style={{ width: 86, textAlign: 'right', fontWeight: 600, fontSize: 11 }}>{pct}</span>
+        <span style={{ width: 86, flexShrink: 0, textAlign: 'right', fontWeight: 600, fontSize: 11 }}>{pct}</span>
       </div>
       {(statusLine || w.quota) && (
-        <div style={{ fontSize: 9, color: '#8a93a6', paddingLeft: 37 }}>
+        <div style={{ fontSize: 9, color: '#8a93a6', paddingLeft: 83 }}>
           {statusLine}{statusLine && w.quota ? ' · ' : ''}
           {w.quota ? `${w.quota.used} of ${w.quota.total}` : null}
         </div>
@@ -45,7 +46,7 @@ function DetailRow({ w, th }: { w: UsageWindow; th: { amber: number; red: number
   );
 }
 
-function ProviderBlock({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
+export function ProviderBlock({ p, cfg }: { p: ProviderSnapshot; cfg: Config | null }) {
   const th = cfg?.thresholds ?? { amber: 50, red: 80 };
   const resets = p.windows.filter((w) => w.resetsAt).map((w) => humanizeReset(w.resetsAt!))[0];
   const stateText = p.state === 'ok' ? '' : (STATE_TEXT[p.state] ?? p.state);

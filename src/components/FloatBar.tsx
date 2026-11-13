@@ -1,7 +1,8 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useEffect, useRef } from 'react';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot } from '../types';
-import { isTauri, setClickThrough, showPopup } from '../tauri';
+import { isTauri, setClickThrough } from '../tauri';
+import { ProviderBlock } from './Popup';
 import { floatRows } from '../floatWindows';
 import { UsageBar, type BarStyle } from './UsageBar';
 import { ProviderLogo } from '../logos';
@@ -49,10 +50,34 @@ function Row({ p, cfg, first }: { p: ProviderSnapshot; cfg: Config | null; first
 export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Config | null }) {
   const clickThrough = cfg?.floatBar.clickThrough ?? false;
   const downAt = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const compactSize = useRef<{ w: number; h: number } | null>(null);
+  const inner = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isTauri()) return;
     void setClickThrough(clickThrough);
   }, [clickThrough]);
+
+  // Expanded: size the window to the content (re-fit on rewrap / new data). Collapsed: restore the old size.
+  useLayoutEffect(() => {
+    if (!isTauri()) return;
+    const win = getCurrentWindow();
+    if (!expanded) {
+      if (compactSize.current) void win.setSize(new LogicalSize(compactSize.current.w, compactSize.current.h));
+      compactSize.current = null;
+      return;
+    }
+    const w = Math.max(compactSize.current?.w ?? 0, 410);
+    const fit = () => {
+      // + 8px top/bottom padding + 1px top/bottom border of the outer box
+      const h = Math.min(Math.ceil(inner.current!.getBoundingClientRect().height) + 18, screen.availHeight - 40);
+      void win.setSize(new LogicalSize(w, h));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(inner.current!);
+    return () => ro.disconnect();
+  }, [expanded]);
 
   return (
     <div
@@ -71,7 +96,8 @@ export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Confi
         const d = downAt.current;
         downAt.current = null;
         if (d && !d.dragging) {
-          void showPopup();
+          if (!expanded) compactSize.current = { w: window.innerWidth, h: window.innerHeight };
+          setExpanded(!expanded);
         }
       }}
       style={{
@@ -80,13 +106,15 @@ export function FloatBar({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Confi
         fontSize: (cfg?.fontSize ?? DEFAULT_BS.font) + 1,
         opacity: (cfg?.floatBar.opacity ?? 0.95),
         width: '100%', height: '100%', boxSizing: 'border-box',
-        display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        cursor: 'default', userSelect: 'none', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', justifyContent: expanded ? 'flex-start' : 'center',
+        cursor: 'default', userSelect: 'none', overflow: expanded ? 'auto' : 'hidden',
       }}
     >
-      {(snap?.providers ?? []).map((p, i) => (
-        <Row key={p.id} p={p} cfg={cfg} first={i === 0} />
-      ))}
+      {expanded
+        ? <div ref={inner} style={{ flexShrink: 0 }}>
+            {(snap?.providers ?? []).map((p) => <ProviderBlock key={p.id} p={p} cfg={cfg} />)}
+          </div>
+        : (snap?.providers ?? []).map((p, i) => <Row key={p.id} p={p} cfg={cfg} first={i === 0} />)}
     </div>
   );
 }
