@@ -1,6 +1,6 @@
 [package]
 name = "ai-usage"
-version = "0.1.1"
+version = "0.1.2"
 description = "AI subscription usage widget"
 authors = ["Juyoung Lee"]
 edition = "2024"
