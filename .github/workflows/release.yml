@@ -33,7 +33,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: 'AI Usage v__VERSION__'
+          releaseName: 'AI Usage v__VERSION__ (Alpha — Do Not Use)'
           releaseBody: 'Signed release with automatic update support (`latest.json`).'
           releaseDraft: false
           prerelease: false

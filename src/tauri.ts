@@ -37,7 +37,7 @@ export const setClickThrough = (on: boolean) => (isTauri() ? invoke('set_click_t
 export const checkForUpdate = (): Promise<UpdateStatus> =>
   isTauri()
     ? invoke<UpdateStatus>('check_for_update')
-    : Promise.resolve({ currentVersion: '0.1.2-dev', availableVersion: null, error: null });
+    : Promise.resolve({ currentVersion: '0.1.3-dev', availableVersion: null, error: null });
 export const installUpdate = (): Promise<boolean> =>
   isTauri() ? invoke<boolean>('install_update') : Promise.resolve(false);
 
