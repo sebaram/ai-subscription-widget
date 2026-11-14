@@ -11,7 +11,7 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 - **Always-on-top float bar** — draggable, resizable, configurable opacity, optional click-through mode, and green/amber/red threshold bars.
 - **Click-to-expand detail view** — click the float bar (or open the popup from the system tray) to view pace markers, reset countdowns, `$` quota amounts, and per-model lanes.
 - **Honest states** — reports `auth-required`, `not-running`, `no-data`, or `parse-failed` rather than fabricating `0%`.
-- **Hot-reloaded config** — settings live in `%APPDATA%\ai-usage\config.json` and update live without restarting; includes autostart support.
+- **Hot-reloaded config** — settings live in `%APPDATA%\ai-usage\config.json` and update live without restarting; includes autostart and signed **auto-updates** via GitHub Releases (toggleable in Settings).
 
 ## Supported Providers
 
@@ -33,7 +33,7 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 
 Download `AI.Usage_<version>_x64-setup.exe` (NSIS installer), `.msi`, or portable `ai-usage.exe` from [Releases](https://github.com/sebaram/ai-subscription-widget/releases).
 
-> Builds are currently unsigned, so Windows SmartScreen may show *"Windows protected your PC"* — click **More info → Run anyway**.
+> Builds are currently Windows-unsigned (Authenticode), so Windows SmartScreen may show *"Windows protected your PC"* on the initial download — click **More info → Run anyway**. Subsequent signed auto-updates install passively in the background without browser SmartScreen prompts.
 
 ## Development
 
@@ -56,7 +56,13 @@ Run checks and production build:
 npm test
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
-npm run tauri build
+npx tauri build --no-sign
+```
+
+To cut a signed release with automatic update metadata (`latest.json`), bump the version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`, then push a tag:
+
+```bash
+git tag vX.Y.Z && git push origin main --tags
 ```
 
 ## Acknowledgments & License

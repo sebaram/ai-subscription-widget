@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { UsageSnapshot, Config } from './types';
+import type { UsageSnapshot, Config, UpdateStatus } from './types';
 import { mockSnapshot, mockConfig } from './mock';
 
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -30,6 +30,12 @@ export const hideMe = () => (isTauri() ? invoke('hide_me') : Promise.resolve());
 export const saveConfig = (c: Config) => (isTauri() ? invoke('save_config', { cfg: c }) : Promise.resolve());
 export const saveFloatPosition = () => (isTauri() ? invoke('save_float_position') : Promise.resolve());
 export const setClickThrough = (on: boolean) => (isTauri() ? invoke('set_click_through', { on }) : Promise.resolve());
+export const checkForUpdate = (): Promise<UpdateStatus> =>
+  isTauri()
+    ? invoke<UpdateStatus>('check_for_update')
+    : Promise.resolve({ currentVersion: '0.1.2-dev', availableVersion: null, error: null });
+export const installUpdate = (): Promise<boolean> =>
+  isTauri() ? invoke<boolean>('install_update') : Promise.resolve(false);
 
 // Plain-browser dev mode: emit a canned, slowly-mutating snapshot every 2 s
 // so the UI can be developed and screenshotted without the Rust backend.

@@ -16,3 +16,5 @@ npm-debug.log*
 target/
 src-tauri/gen/
 .playwright-mcp/
+*.key
+*.sig

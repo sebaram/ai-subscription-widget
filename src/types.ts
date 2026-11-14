@@ -48,6 +48,7 @@ export interface Config {
   theme: string;
   ollamaApiKey: string;
   autostart: boolean;
+  autoUpdate: boolean;
   /** Google daily-cloudcode fallback when the IDE is closed — off by default (spec). */
   antigravityOauth: boolean;
   /** Visual: bar fill thickness in px. */
@@ -58,4 +59,10 @@ export interface Config {
   showMissingWindows: boolean;
   /** Show time-until-reset next to each lane's percentage. */
   showResetTime: boolean;
+}
+
+export interface UpdateStatus {
+  currentVersion: string;
+  availableVersion: string | null;
+  error: string | null;
 }

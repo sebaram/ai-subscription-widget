@@ -166,6 +166,93 @@ fn hide_me(webview: tauri::WebviewWindow) {
     let _ = webview.hide();
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStatus {
+    pub current_version: String,
+    pub available_version: Option<String>,
+    pub error: Option<String>,
+}
+
+fn friendly_update_error(raw: &str) -> String {
+    if raw.contains("404") || raw.contains("release JSON") || raw.contains("Could not fetch") {
+        "No signed update manifest on the latest GitHub release yet.".to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
+fn updating_flag() -> &'static std::sync::atomic::AtomicBool {
+    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLAG
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> UpdateStatus {
+    use tauri_plugin_updater::UpdaterExt;
+    let current_version = app.package_info().version.to_string();
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            return UpdateStatus {
+                current_version,
+                available_version: None,
+                error: Some(friendly_update_error(&e.to_string())),
+            };
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => UpdateStatus {
+            current_version,
+            available_version: Some(update.version),
+            error: None,
+        },
+        Ok(None) => UpdateStatus {
+            current_version,
+            available_version: None,
+            error: None,
+        },
+        Err(e) => UpdateStatus {
+            current_version,
+            available_version: None,
+            error: Some(friendly_update_error(&e.to_string())),
+        },
+    }
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<bool, String> {
+    use std::sync::atomic::Ordering;
+    use tauri_plugin_updater::UpdaterExt;
+    if updating_flag()
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Ok(false);
+    }
+    struct ResetGuard;
+    impl Drop for ResetGuard {
+        fn drop(&mut self) {
+            updating_flag().store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = ResetGuard;
+
+    let updater = app.updater().map_err(|e| friendly_update_error(&e.to_string()))?;
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| friendly_update_error(&e.to_string()))?
+    else {
+        return Ok(false);
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| friendly_update_error(&e.to_string()))?;
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -174,11 +261,26 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(SnapshotCache(Default::default())))
         .setup(|app| {
             let state: tauri::State<Arc<SnapshotCache>> = app.state();
             let cache = state.inner().clone();
             scheduler::start(app.handle().clone(), Arc::clone(&cache));
+
+            #[cfg(not(debug_assertions))]
+            {
+                let upd_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    loop {
+                        if crate::config::load().auto_update {
+                            let _ = install_update(upd_handle.clone()).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+                    }
+                });
+            }
 
             let cfg0 = config::load();
             apply_autostart(app.handle(), cfg0.autostart);
@@ -257,9 +359,10 @@ pub fn run() {
 
             let popup = MenuItem::with_id(app, "popup", "Open popup", true, None::<&str>)?;
             let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
+            let update_item = MenuItem::with_id(app, "update", "Check for updates…", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&popup, &refresh, &settings, &quit])?;
+            let menu = Menu::with_items(app, &[&popup, &refresh, &update_item, &settings, &quit])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().expect("app icon").clone())
@@ -269,6 +372,14 @@ pub fn run() {
                 .on_menu_event(move |app, ev| match ev.id.as_ref() {
                     "popup" => toggle_popup_at(app, 0.0, 0.0),
                     "refresh" => spawn_window_refresh(app.clone(), &cache),
+                    "update" => {
+                        let h = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if !matches!(install_update(h.clone()).await, Ok(true)) {
+                                show_settings(&h);
+                            }
+                        });
+                    }
                     "settings" => show_settings(app),
                     "quit" => app.exit(0),
                     _ => {}
@@ -290,7 +401,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             refresh_now, open_popup, open_settings, hide_me, save_config,
-            save_float_position, set_click_through, get_config, toggle_popup
+            save_float_position, set_click_through, get_config, toggle_popup,
+            check_for_update, install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -326,5 +438,11 @@ mod tests {
         assert_eq!(autostart_action(None, true), Some(AutoStartCmd::Enable));
         // wants off
         assert_eq!(autostart_action(Some(true), false), Some(AutoStartCmd::Disable));
+    }
+
+    #[test]
+    fn friendly_update_error_maps_missing_manifest() {
+        assert!(super::friendly_update_error("status code 404 Not Found").contains("No signed update manifest"));
+        assert_eq!(super::friendly_update_error("network timeout"), "network timeout");
     }
 }

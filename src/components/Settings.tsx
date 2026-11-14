@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Config, ProviderCfg, UsageSnapshot } from '../types';
-import { hideMe, refreshNow, saveConfig } from '../tauri';
+import type { Config, ProviderCfg, UpdateStatus, UsageSnapshot } from '../types';
+import { checkForUpdate, hideMe, installUpdate, refreshNow, saveConfig } from '../tauri';
 
 const WINDOWS = ['5h', 'week', 'month'];
 
@@ -38,6 +38,9 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [refreshed, setRefreshed] = useState(false);
+  const [upd, setUpd] = useState<UpdateStatus | null>(null);
+  const [checkingUpd, setCheckingUpd] = useState(false);
+  const [installingUpd, setInstallingUpd] = useState(false);
   useEffect(() => {
     // resync from incoming config until the user starts editing; after Save, accept again
     if (cfg && !dirty) setDraft(cfg);
@@ -88,10 +91,53 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
       <label style={label}>show time until reset <input type="checkbox" checked={draft.showResetTime} onChange={(e) => up({ showResetTime: e.currentTarget.checked })} /></label>
       <label style={label}>click-through float bar <input type="checkbox" checked={draft.floatBar.clickThrough} onChange={(e) => up({ floatBar: { ...draft.floatBar, clickThrough: e.currentTarget.checked } })} /></label>
       <label style={label}><input type="checkbox" checked={draft.autostart} onChange={(e) => up({ autostart: e.currentTarget.checked })} /> start with Windows</label>
+      <label style={label}><input type="checkbox" checked={draft.autoUpdate} onChange={(e) => up({ autoUpdate: e.currentTarget.checked })} /> install updates automatically</label>
 
       <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
         <button style={{ cursor: 'pointer' }} onClick={async () => { await saveConfig(draft); setSaved(true); setDirty(false); }}>Save</button>
         <span style={{ fontSize: 10, color: '#8a93a6' }}>{saved ? 'saved — applies live' : dirty ? 'unsaved changes' : ''}</span>
+      </div>
+
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          style={{ cursor: 'pointer' }}
+          disabled={checkingUpd || installingUpd}
+          onClick={async () => {
+            setCheckingUpd(true);
+            try {
+              setUpd(await checkForUpdate());
+            } finally {
+              setCheckingUpd(false);
+            }
+          }}
+        >
+          {checkingUpd ? 'Checking…' : 'Check for updates'}
+        </button>
+        {upd?.availableVersion && (
+          <>
+            <span style={{ fontSize: 10, color: '#e2b93d' }}>v{upd.availableVersion} available</span>
+            <button
+              style={{ cursor: 'pointer' }}
+              disabled={installingUpd}
+              onClick={async () => {
+                setInstallingUpd(true);
+                try {
+                  await installUpdate();
+                } finally {
+                  setInstallingUpd(false);
+                }
+              }}
+            >
+              {installingUpd ? 'Installing…' : 'Install & restart'}
+            </button>
+          </>
+        )}
+        {upd && !upd.availableVersion && upd.error && (
+          <span style={{ fontSize: 10, color: '#8a93a6' }}>v{upd.currentVersion} · {upd.error}</span>
+        )}
+        {upd && !upd.availableVersion && !upd.error && (
+          <span style={{ fontSize: 10, color: '#34c07c' }}>v{upd.currentVersion} is up to date</span>
+        )}
       </div>
 
       <Section title="Status" />

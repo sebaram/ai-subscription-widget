@@ -22,6 +22,7 @@ const cfgBase: Config = {
   theme: 'dark',
   ollamaApiKey: '',
   autostart: true,
+  autoUpdate: true,
   antigravityOauth: false,
   barThickness: 5,
   fontSize: 10,

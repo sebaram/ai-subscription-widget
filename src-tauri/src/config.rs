@@ -13,6 +13,7 @@ pub struct Config {
     pub theme: String,
     pub ollama_api_key: String,
     pub autostart: bool,
+    pub auto_update: bool,
     pub antigravity_oauth: bool,
     pub bar_thickness: u32,
     pub font_size: u8,
@@ -86,6 +87,7 @@ pub fn defaults() -> Config {
         theme: "dark".to_string(),
         ollama_api_key: String::new(),
         autostart: true,
+        auto_update: true,
         antigravity_oauth: false,
         bar_thickness: 5,
         font_size: 10,
@@ -240,6 +242,8 @@ mod tests {
         cfg.bar_thickness = 7;
         cfg.font_size = 12;
         assert!(serde_json::to_string(&cfg).unwrap().contains("\"showResetTime\":true"));
+        assert!(serde_json::to_string(&cfg).unwrap().contains("\"autoUpdate\":true"));
+        cfg.auto_update = false;
         cfg.providers[0].float_windows = Some(vec!["5h".into()]);
         let s = serde_json::to_string(&cfg).unwrap();
         assert!(s.contains("\"pollSeconds\""));
