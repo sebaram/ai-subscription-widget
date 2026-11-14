@@ -9,11 +9,97 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
+const POPUP_WIDTH_LOGICAL: f64 = 430.0;
+const POPUP_DEFAULT_HEIGHT_LOGICAL: f64 = 600.0;
+const POPUP_MARGIN_PX: f64 = 4.0;
+
+fn popup_logical_height() -> &'static std::sync::Mutex<f64> {
+    static H: std::sync::Mutex<f64> = std::sync::Mutex::new(POPUP_DEFAULT_HEIGHT_LOGICAL);
+    &H
+}
+
+#[derive(Default)]
+struct PopupDismissState {
+    opened_at: Option<std::time::Instant>,
+    blurred_at: Option<std::time::Instant>,
+    suppress_next_up: bool,
+}
+
+impl PopupDismissState {
+    fn mark_opened(&mut self, now: std::time::Instant) {
+        self.opened_at = Some(now);
+        self.blurred_at = None;
+        self.suppress_next_up = false;
+    }
+
+    /// Returns true when `WindowEvent::Focused(false)` should hide the popup.
+    fn on_unfocused(&mut self, now: std::time::Instant) -> bool {
+        if self
+            .opened_at
+            .is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150))
+        {
+            return false;
+        }
+        self.blurred_at = Some(now);
+        true
+    }
+
+    fn on_tray_left_down(&mut self, popup_visible: bool, now: std::time::Instant) {
+        let just_blurred = self
+            .blurred_at
+            .is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(300));
+        if popup_visible || just_blurred {
+            self.suppress_next_up = true;
+        }
+    }
+
+    fn should_toggle_on_tray_left_up(&mut self, now: std::time::Instant) -> bool {
+        if std::mem::replace(&mut self.suppress_next_up, false) {
+            return false;
+        }
+        !self
+            .blurred_at
+            .is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(250))
+    }
+}
+
+fn popup_dismiss_state() -> &'static std::sync::Mutex<PopupDismissState> {
+    static S: std::sync::Mutex<PopupDismissState> = std::sync::Mutex::new(PopupDismissState {
+        opened_at: None,
+        blurred_at: None,
+        suppress_next_up: false,
+    });
+    &S
+}
+
+/// Compute physical popup height capped to the display's usable work area,
+/// returning `(physical_height_px, needs_scrollbar)`.
+fn popup_physical_height(logical_h: f64, scale: f64, work_area_h: f64) -> (u32, bool) {
+    let max_h = (work_area_h - POPUP_MARGIN_PX * 2.0).max(120.0).floor();
+    let want_h = (logical_h.max(80.0) * scale).ceil();
+    if want_h <= max_h {
+        (want_h as u32, false)
+    } else {
+        (max_h as u32, true)
+    }
+}
+
+fn clamp_rect_in_area(x: f64, y: f64, w: f64, h: f64, ax: f64, ay: f64, aw: f64, ah: f64) -> (f64, f64) {
+    let min_x = ax + POPUP_MARGIN_PX;
+    let min_y = ay + POPUP_MARGIN_PX;
+    let max_x = (ax + aw - w - POPUP_MARGIN_PX).max(min_x);
+    let max_y = (ay + ah - h - POPUP_MARGIN_PX).max(min_y);
+    (x.clamp(min_x, max_x), y.clamp(min_y, max_y))
+}
+
+fn clamped_popup_position_in(cx: f64, cy: f64, w: f64, h: f64, ax: f64, ay: f64, aw: f64, ah: f64) -> (f64, f64) {
+    clamp_rect_in_area(cx - w / 2.0, cy + 12.0, w, h, ax, ay, aw, ah)
+}
+
 /// Where to place a w×h popup so it stays on screen: under the cursor, clamped inside.
+#[cfg(test)]
 fn clamped_popup_position(cx: f64, cy: f64, w: f64, h: f64, screen_w: f64, screen_h: f64) -> (f64, f64) {
-    let x = (cx - w / 2.0).clamp(4.0, (screen_w - w - 4.0).max(4.0));
-    let y = (cy + 12.0).clamp(4.0, (screen_h - h - 4.0).max(4.0));
-    (x, y)
+    clamped_popup_position_in(cx, cy, w, h, 0.0, 0.0, screen_w, screen_h)
 }
 
 #[derive(Debug, PartialEq)]
@@ -53,18 +139,53 @@ fn spawn_window_refresh(app: tauri::AppHandle, cache: &Arc<SnapshotCache>) {
     });
 }
 
+fn monitor_for_point(w: &tauri::WebviewWindow, x: f64, y: f64) -> Option<tauri::Monitor> {
+    w.available_monitors()
+        .ok()
+        .and_then(|ms| {
+            ms.into_iter().find(|m| {
+                let o = m.position();
+                let s = m.size();
+                x >= o.x as f64
+                    && y >= o.y as f64
+                    && x < (o.x as f64 + s.width as f64)
+                    && y < (o.y as f64 + s.height as f64)
+            })
+        })
+        .or_else(|| w.current_monitor().ok().flatten())
+        .or_else(|| w.primary_monitor().ok().flatten())
+}
+
 fn toggle_popup_at(app: &tauri::AppHandle, cx: f64, cy: f64) {
     let Some(w) = app.get_webview_window("popup") else { return };
     if w.is_visible().unwrap_or(false) {
         let _ = w.hide();
         return;
     }
-    if let Ok(Some(monitor)) = w.current_monitor() {
-        let size = monitor.size();
-        // logical size → physical px at the monitor's DPI (review I5)
-        let scale = w.scale_factor().unwrap_or(1.0);
-        let (x, y) = clamped_popup_position(cx, cy, 430.0 * scale, 600.0 * scale, size.width as f64, size.height as f64);
+    let logical_h = popup_logical_height().lock().map(|g| *g).unwrap_or(POPUP_DEFAULT_HEIGHT_LOGICAL);
+    if let Some(monitor) = monitor_for_point(&w, cx, cy) {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let phys_w = (POPUP_WIDTH_LOGICAL * scale).round() as u32;
+        let (phys_h, _) = popup_physical_height(logical_h, scale, area.size.height as f64);
+        let (x, y) = clamped_popup_position_in(
+            cx,
+            cy,
+            phys_w as f64,
+            phys_h as f64,
+            area.position.x as f64,
+            area.position.y as f64,
+            area.size.width as f64,
+            area.size.height as f64,
+        );
+        // Move before resizing so any cross-monitor DPI switch settles first.
         let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x as i32, y as i32)));
+        if w.inner_size().ok().map(|s| (s.width, s.height)) != Some((phys_w, phys_h)) {
+            let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(phys_w, phys_h)));
+        }
+    }
+    if let Ok(mut s) = popup_dismiss_state().lock() {
+        s.mark_opened(std::time::Instant::now());
     }
     let _ = w.show();
     let _ = w.set_focus();
@@ -101,11 +222,6 @@ fn open_popup(app: tauri::AppHandle) {
 /// never drifts to the wrong monitor.
 #[tauri::command]
 fn toggle_popup(app: tauri::AppHandle) {
-    let Some(popup) = app.get_webview_window("popup") else { return };
-    if popup.is_visible().unwrap_or(false) {
-        let _ = popup.hide();
-        return;
-    }
     let (cursor, w_size) = app
         .get_webview_window("floatbar")
         .and_then(|f| {
@@ -117,14 +233,46 @@ fn toggle_popup(app: tauri::AppHandle) {
         .unwrap_or(((154, 154), (352, 200)));
     let cx = (cursor.0 as i64 + w_size.0 as i64) as f64 + 8.0;
     let cy = cursor.1 as f64;
-    if let Ok(Some(monitor)) = popup.current_monitor() {
-        let size = monitor.size();
-        let scale = popup.scale_factor().unwrap_or(1.0);
-        let (x, y) = clamped_popup_position(cx, cy, 430.0 * scale, 600.0 * scale, size.width as f64, size.height as f64);
-        let _ = popup.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x as i32, y as i32)));
+    toggle_popup_at(&app, cx, cy);
+}
+
+#[tauri::command]
+fn resize_popup(height: f64, app: tauri::AppHandle) -> bool {
+    if height.is_finite() && height > 0.0 {
+        if let Ok(mut h) = popup_logical_height().lock() {
+            *h = height;
+        }
     }
-    let _ = popup.show();
-    let _ = popup.set_focus();
+    let Some(w) = app.get_webview_window("popup") else { return false };
+    let logical_h = popup_logical_height().lock().map(|g| *g).unwrap_or(POPUP_DEFAULT_HEIGHT_LOGICAL);
+    let Some(monitor) = w.current_monitor().ok().flatten().or_else(|| w.primary_monitor().ok().flatten()) else {
+        return false;
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let phys_w = (POPUP_WIDTH_LOGICAL * scale).round() as u32;
+    let (phys_h, scrollable) = popup_physical_height(logical_h, scale, area.size.height as f64);
+    if w.inner_size().ok().map(|s| (s.width, s.height)) != Some((phys_w, phys_h)) {
+        let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(phys_w, phys_h)));
+    }
+    if w.is_visible().unwrap_or(false) {
+        if let Ok(pos) = w.outer_position() {
+            let (nx, ny) = clamp_rect_in_area(
+                pos.x as f64,
+                pos.y as f64,
+                phys_w as f64,
+                phys_h as f64,
+                area.position.x as f64,
+                area.position.y as f64,
+                area.size.width as f64,
+                area.size.height as f64,
+            );
+            if (nx as i32, ny as i32) != (pos.x, pos.y) {
+                let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(nx as i32, ny as i32)));
+            }
+        }
+    }
+    scrollable
 }
 
 #[tauri::command]
@@ -357,6 +505,21 @@ pub fn run() {
                 });
             }
 
+            if let Some(popup_win) = app.get_webview_window("popup") {
+                let p = popup_win.clone();
+                popup_win.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Focused(false) = ev {
+                        let should_hide = popup_dismiss_state()
+                            .lock()
+                            .map(|mut s| s.on_unfocused(std::time::Instant::now()))
+                            .unwrap_or(true);
+                        if should_hide && p.is_visible().unwrap_or(false) {
+                            let _ = p.hide();
+                        }
+                    }
+                });
+            }
+
             let popup = MenuItem::with_id(app, "popup", "Open popup", true, None::<&str>)?;
             let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
             let update_item = MenuItem::with_id(app, "update", "Check for updates…", true, None::<&str>)?;
@@ -387,13 +550,39 @@ pub fn run() {
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
+                        button_state,
                         position,
                         ..
                     } = event
                     {
-                        // event position is already physical/global
-                        toggle_popup_at(tray.app_handle(), position.x, position.y);
+                        let now = std::time::Instant::now();
+                        let app = tray.app_handle();
+                        match button_state {
+                            MouseButtonState::Down => {
+                                let visible = app
+                                    .get_webview_window("popup")
+                                    .and_then(|w| w.is_visible().ok())
+                                    .unwrap_or(false);
+                                if let Ok(mut s) = popup_dismiss_state().lock() {
+                                    s.on_tray_left_down(visible, now);
+                                }
+                                if visible {
+                                    if let Some(w) = app.get_webview_window("popup") {
+                                        let _ = w.hide();
+                                    }
+                                }
+                            }
+                            MouseButtonState::Up => {
+                                let should_toggle = popup_dismiss_state()
+                                    .lock()
+                                    .map(|mut s| s.should_toggle_on_tray_left_up(now))
+                                    .unwrap_or(true);
+                                if should_toggle {
+                                    // event position is already physical/global
+                                    toggle_popup_at(app, position.x, position.y);
+                                }
+                            }
+                        }
                     }
                 })
                 .build(app)?;
@@ -402,7 +591,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             refresh_now, open_popup, open_settings, hide_me, save_config,
             save_float_position, set_click_through, get_config, toggle_popup,
-            check_for_update, install_update
+            resize_popup, check_for_update, install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -410,7 +599,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{autostart_action, AutoStartCmd, clamped_popup_position};
+    use super::{
+        autostart_action, AutoStartCmd, PopupDismissState, clamp_rect_in_area,
+        clamped_popup_position, clamped_popup_position_in, popup_physical_height,
+    };
 
     #[test]
     fn popup_position_command_clamps_to_screen() {
@@ -444,5 +636,55 @@ mod tests {
     fn friendly_update_error_maps_missing_manifest() {
         assert!(super::friendly_update_error("status code 404 Not Found").contains("No signed update manifest"));
         assert_eq!(super::friendly_update_error("network timeout"), "network timeout");
+    }
+
+    #[test]
+    fn popup_physical_height_fits_when_under_work_area() {
+        // 740 logical px at 1.5x scale = 1110px inside 1368px work area -> fits without scrollbar
+        assert_eq!(popup_physical_height(740.0, 1.5, 1368.0), (1110, false));
+        // 1100 logical px at 1.0x scale inside 1032px work area -> clamped to 1024px (1032 - 8), scrollbar on
+        assert_eq!(popup_physical_height(1100.0, 1.0, 1032.0), (1024, true));
+    }
+
+    #[test]
+    fn popup_clamping_respects_work_area_and_monitor_origin() {
+        // Tray click near bottom taskbar (work_area height 1032 on a 1080 display): 740px popup sits 4px above taskbar
+        let (x, y) = clamped_popup_position_in(1850.0, 1055.0, 430.0, 740.0, 0.0, 0.0, 1920.0, 1032.0);
+        assert_eq!(x, 1920.0 - 430.0 - 4.0);
+        assert_eq!(y, 288.0);
+        // Re-clamping an expanded popup on a negative-origin secondary monitor preserves top-left unless clipped
+        assert_eq!(
+            clamp_rect_in_area(-1800.0, 500.0, 430.0, 740.0, -1920.0, 0.0, 1920.0, 1032.0),
+            (-1800.0, 288.0)
+        );
+    }
+
+    #[test]
+    fn popup_dismisses_on_blur_without_tray_bounce() {
+        use std::time::{Duration, Instant};
+        let mut s = PopupDismissState::default();
+        let t0 = Instant::now();
+        s.mark_opened(t0);
+        assert!(!s.on_unfocused(t0 + Duration::from_millis(40)));
+        assert!(s.on_unfocused(t0 + Duration::from_millis(500)));
+
+        // Tray click while open: focus loss on mouse-down hides popup, mouse-up does not re-open it.
+        let t1 = t0 + Duration::from_secs(2);
+        s.mark_opened(t1);
+        assert!(s.on_unfocused(t1 + Duration::from_millis(400)));
+        s.on_tray_left_down(false, t1 + Duration::from_millis(420));
+        assert!(!s.should_toggle_on_tray_left_up(t1 + Duration::from_millis(1000)));
+
+        // If mouse-down arrives while still visible, mouse-up is also suppressed.
+        s.mark_opened(t1 + Duration::from_secs(2));
+        s.on_tray_left_down(true, t1 + Duration::from_secs(3));
+        assert!(!s.should_toggle_on_tray_left_up(t1 + Duration::from_secs(3) + Duration::from_millis(50)));
+
+        // Subsequent tray click after clicking away elsewhere re-opens normally.
+        let t2 = t1 + Duration::from_secs(5);
+        s.mark_opened(t2);
+        assert!(s.on_unfocused(t2 + Duration::from_millis(300)));
+        s.on_tray_left_down(false, t2 + Duration::from_millis(700));
+        assert!(s.should_toggle_on_tray_left_up(t2 + Duration::from_millis(760)));
     }
 }

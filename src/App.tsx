@@ -18,7 +18,7 @@ function App() {
   const label = windowLabel();
   if (label === 'floatbar') return <FloatBar snap={snap} cfg={cfg} />;
   if (label === 'popup') return (
-    <div style={{ height: '100%', boxSizing: 'border-box' }}>
+    <div style={{ height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
       <Popup snap={snap} cfg={cfg} />
     </div>
   );

@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Config, ProviderSnapshot, UsageSnapshot, UsageWindow } from '../types';
 import { colorFor } from '../color';
 import { paceStatus, etaText, humanizeReset } from '../pace';
-import { hideMe } from '../tauri';
+import { hideMe, resizePopup } from '../tauri';
 import { ProviderLogo } from '../logos';
 
 const STATE_TEXT: Record<string, string> = {
@@ -65,24 +65,56 @@ export function ProviderBlock({ p, cfg }: { p: ProviderSnapshot; cfg: Config | n
 }
 
 export function Popup({ snap, cfg }: { snap: UsageSnapshot | null; cfg: Config | null }) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [scrollable, setScrollable] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void hideMe(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  const fit = () => {
+    const el = inner.current;
+    if (!el) return;
+    // 14px top/bottom padding + 1px top/bottom border + 2px fractional-DPI buffer
+    const h = Math.ceil(el.getBoundingClientRect().height) + 32;
+    void resizePopup(h).then(setScrollable).catch(() => {});
+  };
+
+  useLayoutEffect(() => { fit(); }, [snap, cfg]);
+
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener('focus', fit);
+    document.addEventListener('visibilitychange', fit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('focus', fit);
+      document.removeEventListener('visibilitychange', fit);
+    };
+  }, []);
+
   return (
     <div
       style={{
         background: 'rgba(23,28,38,0.98)', border: '1px solid #2a313e', borderRadius: 14,
-        padding: '14px 16px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif", width: 380, userSelect: 'none',
+        padding: '14px 16px', color: '#e8eaf0', fontFamily: "'Segoe UI',sans-serif",
+        width: '100%', maxHeight: '100%', boxSizing: 'border-box', userSelect: 'none',
+        overflowY: scrollable ? 'auto' : 'hidden', overflowX: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <strong style={{ fontSize: 13 }}>AI Usage</strong>
-        {snap && <span style={{ color: '#8a93a6', fontSize: 10 }}>refreshed {new Date(snap.refreshedAt).toLocaleTimeString()}</span>}
+      <div ref={inner}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <strong style={{ fontSize: 13 }}>AI Usage</strong>
+          {snap && <span style={{ color: '#8a93a6', fontSize: 10 }}>refreshed {new Date(snap.refreshedAt).toLocaleTimeString()}</span>}
+        </div>
+        {(snap?.providers ?? []).map((p) => <ProviderBlock key={p.id} p={p} cfg={cfg} />)}
+        <div style={{ fontSize: 9, color: '#8a93a6' }}>Click outside or Esc to close</div>
       </div>
-      {(snap?.providers ?? []).map((p) => <ProviderBlock key={p.id} p={p} cfg={cfg} />)}
-      <div style={{ fontSize: 9, color: '#8a93a6' }}>Esc to close</div>
     </div>
   );
 }

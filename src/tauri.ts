@@ -26,6 +26,10 @@ export function onConfig(cb: (c: Config) => void): Promise<() => void> {
 export const refreshNow = () => (isTauri() ? invoke('refresh_now') : Promise.resolve());
 export const openPopup = () => (isTauri() ? invoke('open_popup') : Promise.resolve());
 export const showPopup = () => (isTauri() ? invoke('toggle_popup') : Promise.resolve());
+export const resizePopup = (height: number): Promise<boolean> =>
+  isTauri()
+    ? invoke<boolean>('resize_popup', { height })
+    : Promise.resolve(height > window.innerHeight);
 export const hideMe = () => (isTauri() ? invoke('hide_me') : Promise.resolve());
 export const saveConfig = (c: Config) => (isTauri() ? invoke('save_config', { cfg: c }) : Promise.resolve());
 export const saveFloatPosition = () => (isTauri() ? invoke('save_float_position') : Promise.resolve());
