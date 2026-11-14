@@ -80,6 +80,7 @@ export function Settings({ cfg, snap }: { cfg: Config | null; snap: UsageSnapsho
       <label style={label}>global poll seconds <input type="number" style={{ width: 90 }} value={draft.pollSeconds} onChange={(e) => up({ pollSeconds: num(e.currentTarget.value, draft.pollSeconds) })} /></label>
       <div style={{ fontSize: 10, color: '#8a93a6', marginBottom: 6 }}>Ollama is capped at ≥60s (API limit 10/min).</div>
       <label style={label}>Ollama Cloud API key <input type="password" style={{ width: 180 }} value={draft.ollamaApiKey} onChange={(e) => up({ ollamaApiKey: e.currentTarget.value })} placeholder="(from ollama.com/settings/keys)" /></label>
+      <div style={{ fontSize: 10, color: '#8a93a6', marginBottom: 6 }}>Saved keys are unencrypted in config.json. Leave blank to use the OLLAMA_API_KEY environment variable instead.</div>
       <label style={label}><input type="checkbox" checked={draft.antigravityOauth} onChange={(e) => up({ antigravityOauth: e.currentTarget.checked })} /> Antigravity: track even when the IDE is closed (read-only use of Antigravity's own saved Google login)</label>
 
       <Section title="Visual" />

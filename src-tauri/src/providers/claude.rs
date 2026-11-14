@@ -78,8 +78,6 @@ fn parse_usage(v: &Value, show_missing: bool) -> Vec<UsageWindow> {
 
 pub struct Creds {
     access_token: String,
-    refresh_token: Option<String>,
-    #[allow(dead_code)]
     expires_at_ms: Option<u64>,
 }
 
@@ -103,7 +101,6 @@ fn parse_creds(v: &Value) -> Option<Creds> {
     }
     Some(Creds {
         access_token,
-        refresh_token: oauth.get("refreshToken").and_then(|r| r.as_str()).map(String::from),
         expires_at_ms: oauth.get("expiresAt").and_then(|e| e.as_f64()).map(|e| e as u64),
     })
 }
@@ -115,55 +112,12 @@ fn load_creds_from(dir: &std::path::Path) -> Option<Creds> {
 }
 
 /// Claude CLI owns this file; we only read it (design constraint).
-#[cfg(test)]
 fn token_needs_refresh(expires_at_ms: u64) -> bool {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(u64::MAX);
     now_ms.saturating_add(30_000) >= expires_at_ms // 30 s clock skew
-}
-
-/// In-memory only refresh — never written back (design: read-only creds).
-/// Returns (access, rotated refresh token if the server rotates, expires_in seconds).
-async fn refresh_access_token(
-    http: &reqwest::Client,
-    refresh_token: &str,
-) -> Result<(String, Option<String>, Option<u64>), String> {
-    let enc = |s: &str| {
-        let mut out = String::new();
-        for b in s.bytes() {
-            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-                out.push(b as char);
-            } else {
-                out.push_str(&format!("%{b:02X}"));
-            }
-        }
-        out
-    };
-    let body = format!(
-        "grant_type=refresh_token&refresh_token={}&client_id={}",
-        enc(refresh_token),
-        enc("9d1c250a-e61b-44d9-88ed-5944d1962f5e")
-    );
-    let resp = http
-        .post("https://platform.claude.com/v1/oauth/token")
-        .header("Accept", "application/json")
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("refresh failed: {}", resp.status()));
-    }
-    let v: Value = resp.json().await.map_err(|e| e.to_string())?;
-    let access = v.get("access_token").and_then(|t| t.as_str()).ok_or("no access_token")?;
-    Ok((
-        access.to_string(),
-        v.get("refresh_token").and_then(|t| t.as_str()).map(String::from),
-        v.get("expires_in").and_then(|e| e.as_u64()),
-    ))
 }
 
 async fn usage_call(
@@ -198,7 +152,7 @@ pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     let creds = load_creds_from(&creds_path());
     let snap = fetch_with_creds(ctx, creds).await;
     if snap.state == ProviderState::AuthRequired {
-        snap.with_message("Run `claude` once (Claude Code) to log in — its stored token is read, never written")
+        snap.with_message("Run `claude` (Claude Code) to refresh your login, then refresh this widget — credentials are read only")
     } else if snap.state == ProviderState::ParseFailed {
         snap.with_message("Could not parse the usage response (API may have changed)")
     } else {
@@ -210,88 +164,18 @@ async fn fetch_with_creds(ctx: &FetchCtx, creds: Option<Creds>) -> ProviderSnaps
     let Some(creds) = creds else {
         return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]);
     };
-    // Review I4: cache-first — refresh once per expiry, never re-play a rotated token.
-    use crate::providers::{first_token_step, CachedStep};
-    let now_ms = crate::providers::now_epoch_ms();
-    let mut force_refreshable: Option<String> = match &creds.refresh_token {
-        Some(rt) => Some(rt.clone()),
-        None => None,
-    };
-    let mut token = match first_token_step(crate::providers::cached_token("claude"), now_ms) {
-        CachedStep::CachedValid(t) => t,
-        CachedStep::CachedRotate(rt) => {
-            force_refreshable = None; // family already rotated; the file token must never be retried
-            match refresh_access_token(&ctx.http, &rt).await {
-                Ok((a, rotated, exp_in)) => {
-                    store_claude_token(a.clone(), rotated.clone().unwrap_or(rt), exp_in);
-                    a
-                }
-                Err(_) => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
-            }
-        }
-        CachedStep::UseFile => {
-            let file_token = creds.access_token.clone();
-            let file_stale = creds
-                .expires_at_ms
-                .map(|e| now_ms.saturating_add(30_000) >= e)
-                .unwrap_or(false);
-            if file_stale {
-                let Some(rt) = &creds.refresh_token else {
-                    return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]);
-                };
-                match refresh_access_token(&ctx.http, rt).await {
-                    Ok((a, rotated, exp_in)) => {
-                        let rotated_final = rotated.unwrap_or_else(|| rt.clone());
-                        store_claude_token(a.clone(), rotated_final.clone(), exp_in);
-                        force_refreshable = Some(rotated_final);
-                        a
-                    }
-                    Err(_) => return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]),
-                }
-            } else {
-                file_token
-            }
-        }
-    };
-    let windows = match usage_call(&ctx.http, &token).await {
+    // Claude Code owns refresh tokens; never rotate credentials on its behalf.
+    if creds.expires_at_ms.is_some_and(token_needs_refresh) {
+        return snapshot_for(ProviderId::Claude, ProviderState::AuthRequired, vec![]);
+    }
+    match usage_call(&ctx.http, &creds.access_token).await {
         Ok(v) => {
             let windows = parse_usage(&v, ctx.cfg.show_missing_windows);
-            if windows.is_empty() {
-                return snapshot_for(ProviderId::Claude, ProviderState::NoData, vec![]);
-            }
-            windows
+            let state = if windows.is_empty() { ProviderState::NoData } else { ProviderState::Ok };
+            snapshot_for(ProviderId::Claude, state, windows)
         }
-        Err(state) => {
-            // 401 with a still-refreshable token: one in-memory refresh + retry (review I4)
-            if state == ProviderState::AuthRequired {
-                if let Some(rt) = &force_refreshable {
-                    if let Ok((a, rotated, exp_in)) = refresh_access_token(&ctx.http, rt).await {
-                        store_claude_token(a.clone(), rotated.unwrap_or_else(|| rt.clone()), exp_in);
-                        token = a;
-                        if let Ok(v) = usage_call(&ctx.http, &token).await {
-                            let windows = parse_usage(&v, ctx.cfg.show_missing_windows);
-                            if windows.is_empty() {
-                                return snapshot_for(ProviderId::Claude, ProviderState::NoData, vec![]);
-                            }
-                            return snapshot_for(ProviderId::Claude, ProviderState::Ok, windows);
-                        }
-                    }
-                }
-            }
-            return snapshot_for(ProviderId::Claude, state, vec![]);
-        }
-    };
-    snapshot_for(ProviderId::Claude, ProviderState::Ok, windows)
-}
-
-fn store_claude_token(access: String, refresh: String, expires_in: Option<u64>) {
-    let exp_in = expires_in.unwrap_or(28800); // observed default: 8h
-    crate::providers::store_token(
-        "claude",
-        access,
-        refresh,
-        crate::providers::now_epoch_ms() + exp_in * 1000,
-    );
+        Err(state) => snapshot_for(ProviderId::Claude, state, vec![]),
+    }
 }
 
 #[cfg(test)]
@@ -394,12 +278,25 @@ mod tests {
         let creds = load_creds_from(&dir.join(".claude").join(".credentials.json"));
         let c = creds.expect("creds parsed");
         assert_eq!(c.access_token, "tok");
-        assert_eq!(c.refresh_token.as_deref(), Some("ref"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn claude_mcp_only_payload_rejected() {
         assert!(parse_creds(&json!({"mcpOAuth": {"some": 1}})).is_none());
+    }
+
+    #[tokio::test]
+    async fn expired_cli_credentials_never_send_network_requests() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut ctx = FetchCtx::new(crate::config::defaults());
+        ctx.http = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://{}", listener.local_addr().unwrap())).unwrap())
+            .timeout(std::time::Duration::from_millis(100))
+            .build().unwrap();
+        let snap = fetch_with_creds(&ctx, Some(Creds { access_token: "expired".into(), expires_at_ms: Some(0) })).await;
+        assert_eq!(snap.state, ProviderState::AuthRequired);
+        assert!(listener.accept().is_err(), "expired CLI credentials must not trigger OAuth refresh or usage requests");
     }
 }

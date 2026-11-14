@@ -29,7 +29,8 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 ## Privacy & Credentials
 
 - Zero telemetry or third-party backend servers; all requests go directly from your machine to each provider's usage endpoint.
-- Existing CLI and IDE credential files/databases are opened **read-only** and are never modified on disk (any OAuth token refresh happens strictly in memory).
+- Existing CLI and IDE credential files/databases are opened **read-only** and are never modified on disk. Claude and Codex access tokens are read on every poll; expired logins must be refreshed through the owning CLI.
+- Ollama keys entered in Settings are stored **unencrypted** in `%APPDATA%\ai-usage\config.json` (and may appear in config backups). To avoid saving a key in this file, leave the Settings field blank and supply `OLLAMA_API_KEY` in the app's environment. `.env` files also store keys as plaintext; keep them private and out of version control.
 - Provider usage endpoints are unofficial/internal and may change without notice.
 
 ## Install (Windows 11 x64)
@@ -42,7 +43,7 @@ Current builds are **alpha pre-releases (do not use in production)**. Download `
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 20.19+ or 22.12+ (Node 22 LTS recommended)
 - Rust stable (`x86_64-pc-windows-msvc`) + Visual Studio Build Tools (C++ workload)
 - Microsoft Edge WebView2 (preinstalled on Windows 11)
 

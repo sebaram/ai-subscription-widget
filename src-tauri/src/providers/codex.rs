@@ -185,19 +185,8 @@ fn token_needs_refresh(token: &str) -> bool {
     }
 }
 
-/// Expiry of a fresh access token: from its JWT exp, else a conservative 8h.
-fn exp_ms_for(access: &str, now_ms: u64) -> u64 {
-    let exp = jwt_exp_epoch(access).unwrap_or(0);
-    if exp > 0 {
-        (exp as i128 * 1000) as u64
-    } else {
-        now_ms + 28800 * 1000
-    }
-}
-
 pub struct CodexAuth {
     access_token: String,
-    refresh_token: Option<String>,
     account_id: Option<String>,
 }
 
@@ -231,39 +220,8 @@ fn load_auth_from(path: &std::path::Path) -> Option<CodexAuth> {
         .or_else(|| jwt_account_id(&access_token));
     Some(CodexAuth {
         access_token,
-        refresh_token: field("refresh_token", "refreshToken"),
         account_id,
     })
-}
-
-/// In-memory refresh (design: never writes ~/.codex/auth.json).
-async fn refresh_access_token(
-    http: &reqwest::Client,
-    refresh_token: &str,
-) -> Result<String, String> {
-    let resp = http
-        .post("https://auth.openai.com/oauth/token")
-        .header("Content-Type", "application/json")
-        .body(
-            serde_json::json!({
-                "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "scope": "openid profile email"
-            })
-            .to_string(),
-        )
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("refresh failed: {}", resp.status()));
-    }
-    let v: Value = resp.json().await.map_err(|e| e.to_string())?;
-    v.get("access_token")
-        .and_then(|t| t.as_str())
-        .map(String::from)
-        .ok_or_else(|| "no access_token".to_string())
 }
 
 async fn usage_call(http: &reqwest::Client, token: &str, account_id: Option<&str>) -> Result<Value, ProviderState> {
@@ -287,7 +245,7 @@ pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     let auth = load_auth_from(&auth_path());
     let snap = fetch_with_auth(ctx, auth).await;
     if snap.state == ProviderState::AuthRequired {
-        snap.with_message("Run `codex` once to log in — its stored token is read, never written")
+        snap.with_message("Run `codex` to refresh your login, then refresh this widget — credentials are read only")
     } else {
         snap
     }
@@ -297,72 +255,15 @@ async fn fetch_with_auth(ctx: &FetchCtx, auth: Option<CodexAuth>) -> ProviderSna
     let Some(auth) = auth else {
         return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
     };
-    // Review I4: cache-first — refresh once per expiry, never re-play a rotated token.
-    use crate::providers::{first_token_step, CachedStep};
-    let now_ms = crate::providers::now_epoch_ms();
-    let mut force_refreshable = auth.refresh_token.clone();
-    let mut token = match first_token_step(crate::providers::cached_token("codex"), now_ms) {
-        CachedStep::CachedValid(t) => t,
-        CachedStep::CachedRotate(rt) => {
-            force_refreshable = None;
-            match refresh_access_token(&ctx.http, &rt).await {
-                Ok(new) => {
-                    crate::providers::store_token("codex", new.clone(), rt, exp_ms_for(&new, now_ms));
-                    new
-                }
-                Err(_) => return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
-            }
-        }
-        CachedStep::UseFile => {
-            let file_token = auth.access_token.clone();
-            if token_needs_refresh(&file_token) {
-                let Some(rt) = auth.refresh_token.clone() else {
-                    return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
-                };
-                match refresh_access_token(&ctx.http, &rt).await {
-                    Ok(new) => {
-                        crate::providers::store_token("codex", new.clone(), rt.clone(), exp_ms_for(&new, now_ms));
-                        force_refreshable = Some(rt);
-                        new
-                    }
-                    Err(_) => return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
-                }
-            } else {
-                file_token
-            }
-        }
-    };
-    let usage = usage_call(&ctx.http, &token, auth.account_id.as_deref()).await;
-    match usage {
+    // The CLI owns refresh tokens. Re-read its access token on each poll.
+    if token_needs_refresh(&auth.access_token) {
+        return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
+    }
+    match usage_call(&ctx.http, &auth.access_token, auth.account_id.as_deref()).await {
         Ok(v) => {
             let windows = parse_usage(&v);
-            if windows.is_empty() {
-                // Review minor: an empty 200 is "No quota reported", not an empty card
-                snapshot_for(ProviderId::Codex, ProviderState::NoData, vec![])
-            } else {
-                snapshot_for(ProviderId::Codex, ProviderState::Ok, windows)
-            }
-        }
-        Err(ProviderState::AuthRequired) if force_refreshable.is_some() => {
-            let rt = force_refreshable.unwrap();
-            match refresh_access_token(&ctx.http, &rt).await {
-                Ok(new) => {
-                    crate::providers::store_token("codex", new.clone(), rt, exp_ms_for(&new, now_ms));
-                    token = new;
-                    match usage_call(&ctx.http, &token, auth.account_id.as_deref()).await {
-                        Ok(v) => {
-                            let windows = parse_usage(&v);
-                            if windows.is_empty() {
-                                snapshot_for(ProviderId::Codex, ProviderState::NoData, vec![])
-                            } else {
-                                snapshot_for(ProviderId::Codex, ProviderState::Ok, windows)
-                            }
-                        }
-                        Err(state) => snapshot_for(ProviderId::Codex, state, vec![]),
-                    }
-                }
-                Err(_) => snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]),
-            }
+            let state = if windows.is_empty() { ProviderState::NoData } else { ProviderState::Ok };
+            snapshot_for(ProviderId::Codex, state, windows)
         }
         Err(state) => snapshot_for(ProviderId::Codex, state, vec![]),
     }
@@ -480,5 +381,19 @@ mod tests {
         let ctx = FetchCtx::new(cfg);
         let snap = fetch_with_auth(&ctx, None).await;
         assert_eq!(snap.state, ProviderState::AuthRequired);
+    }
+
+    #[tokio::test]
+    async fn expired_cli_credentials_never_send_network_requests() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut ctx = FetchCtx::new(crate::config::defaults());
+        ctx.http = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://{}", listener.local_addr().unwrap())).unwrap())
+            .timeout(std::time::Duration::from_millis(100))
+            .build().unwrap();
+        let snap = fetch_with_auth(&ctx, Some(CodexAuth { access_token: format!("x.{}.y", b64url_json(json!({"exp": 1}))), account_id: None })).await;
+        assert_eq!(snap.state, ProviderState::AuthRequired);
+        assert!(listener.accept().is_err(), "expired CLI credentials must not trigger OAuth refresh or usage requests");
     }
 }
