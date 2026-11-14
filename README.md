@@ -6,6 +6,9 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 
 <br clear="left" />
 
+> [!WARNING]
+> **Alpha Version — Do Not Use.** This project is an early personal alpha under active development and is **not ready for general use**. Expect breaking changes, unfinished behavior, and unannounced upstream provider API changes.
+
 ## Features
 
 - **Always-on-top float bar** — draggable, resizable, configurable opacity, optional click-through mode, and green/amber/red threshold bars.
@@ -31,7 +34,7 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 
 ## Install (Windows 11 x64)
 
-Download `AI.Usage_<version>_x64-setup.exe` (NSIS installer), `.msi`, or portable `ai-usage.exe` from [Releases](https://github.com/sebaram/ai-subscription-widget/releases).
+Current builds are **alpha pre-releases (do not use in production)**. Download `AI.Usage_<version>_x64-setup.exe` (NSIS installer), `.msi`, or portable `ai-usage.exe` from [Releases](https://github.com/sebaram/ai-subscription-widget/releases).
 
 > Builds are currently Windows-unsigned (Authenticode), so Windows SmartScreen may show *"Windows protected your PC"* on the initial download — click **More info → Run anyway**. Subsequent signed auto-updates install passively in the background without browser SmartScreen prompts.
 
