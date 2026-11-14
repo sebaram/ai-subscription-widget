@@ -10,6 +10,8 @@ jobs:
     permissions:
       contents: write
     runs-on: windows-latest
+    env:
+      SIGNPATH_ENABLED: ${{ secrets.SIGNPATH_API_TOKEN != '' && secrets.SIGNPATH_ORGANIZATION_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +28,9 @@ jobs:
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      # Fallback path used until SignPath secrets are configured
+      - if: env.SIGNPATH_ENABLED != 'true'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -38,10 +42,85 @@ jobs:
           releaseDraft: false
           prerelease: false
 
-      - name: Attach portable exe
+      - name: Attach portable exe (fallback)
+        if: env.SIGNPATH_ENABLED != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $ver = (Get-Content package.json | ConvertFrom-Json).version
           gh release upload "v$ver" src-tauri/target/release/ai-usage.exe --clobber
+
+      # SignPath Foundation Authenticode path (active once SIGNPATH_* secrets are set)
+      - name: Build unsigned Windows bundles
+        if: env.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content unsigned.tauri.conf.json
+          npx tauri build --no-sign -c unsigned.tauri.conf.json
+          $rc = $LASTEXITCODE
+          Remove-Item unsigned.tauri.conf.json -ErrorAction SilentlyContinue
+          if ($rc -ne 0) { exit $rc }
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force -Path unsigned-artifacts | Out-Null
+          Copy-Item "src-tauri/target/release/bundle/nsis/AI Usage_${ver}_x64-setup.exe" "unsigned-artifacts/AI.Usage_${ver}_x64-setup.exe"
+          Copy-Item "src-tauri/target/release/bundle/msi/AI Usage_${ver}_x64_en-US.msi" "unsigned-artifacts/AI.Usage_${ver}_x64_en-US.msi"
+          Copy-Item "src-tauri/target/release/ai-usage.exe" "unsigned-artifacts/ai-usage.exe"
+
+      - name: Upload unsigned artifact for SignPath
+        if: env.SIGNPATH_ENABLED == 'true'
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-binaries
+          path: unsigned-artifacts/*
+
+      - name: Submit signing request to SignPath
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'ai-usage' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_SLUG || 'windows-binaries' }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-artifacts
+
+      - name: Sign updater bundles and publish GitHub Release
+        if: env.SIGNPATH_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $nsis = "signed-artifacts/AI.Usage_${ver}_x64-setup.exe"
+          $msi  = "signed-artifacts/AI.Usage_${ver}_x64_en-US.msi"
+          npx tauri signer sign --app-version $ver $nsis
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx tauri signer sign --app-version $ver $msi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $nsisSig = (Get-Content "$nsis.sig" -Raw).Trim()
+          $msiSig  = (Get-Content "$msi.sig" -Raw).Trim()
+          $baseUrl = "https://github.com/${env:GITHUB_REPOSITORY}/releases/download/v$ver"
+          $latest = [ordered]@{
+            version   = $ver
+            notes     = "Authenticode-signed release with automatic update support (latest.json)."
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            platforms = [ordered]@{
+              "windows-x86_64"      = [ordered]@{ signature = $msiSig;  url = "$baseUrl/AI.Usage_${ver}_x64_en-US.msi" }
+              "windows-x86_64-msi"  = [ordered]@{ signature = $msiSig;  url = "$baseUrl/AI.Usage_${ver}_x64_en-US.msi" }
+              "windows-x86_64-nsis" = [ordered]@{ signature = $nsisSig; url = "$baseUrl/AI.Usage_${ver}_x64-setup.exe" }
+            }
+          } | ConvertTo-Json -Depth 5
+          [System.IO.File]::WriteAllText("$PWD/signed-artifacts/latest.json", $latest, (New-Object System.Text.UTF8Encoding($false)))
+          gh release view "v$ver" *>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "v$ver" --title "AI Usage v$ver (Alpha — Do Not Use)" --notes "Authenticode-signed release via SignPath Foundation."
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          gh release upload "v$ver" $nsis "$nsis.sig" $msi "$msi.sig" "signed-artifacts/ai-usage.exe" "signed-artifacts/latest.json" --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

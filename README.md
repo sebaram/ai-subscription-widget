@@ -28,7 +28,7 @@ Lightweight Windows 11 Tauri v2 desktop widget displaying live subscription usag
 
 ## Privacy & Credentials
 
-- Zero telemetry or third-party backend servers; all requests go directly from your machine to each provider's usage endpoint.
+- Zero telemetry or third-party backend servers. This program does not transfer any information to networked systems other than the enabled AI providers configured by the user (and GitHub Releases when checking for updates, which can be disabled in Settings).
 - Existing CLI and IDE credential files/databases are opened **read-only** and are never modified on disk. Claude and Codex access tokens are read on every poll; expired logins must be refreshed through the owning CLI.
 - Ollama keys entered in Settings are stored **unencrypted** in `%APPDATA%\ai-usage\config.json` (and may appear in config backups). To avoid saving a key in this file, leave the Settings field blank and supply `OLLAMA_API_KEY` in the app's environment. `.env` files also store keys as plaintext; keep them private and out of version control.
 - Provider usage endpoints are unofficial/internal and may change without notice.
@@ -68,6 +68,14 @@ To cut a signed release with automatic update metadata (`latest.json`), bump the
 ```bash
 git tag vX.Y.Z && git push origin main --tags
 ```
+
+## Code Signing Policy
+
+Free code signing on Windows provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- **Committers, reviewers, and approvers:** [Juyoung Lee (@sebaram)](https://github.com/sebaram)
+- **Build provenance:** Official Windows installers (`.exe`, `.msi`) and binaries are built exclusively from tagged commits in this public repository via [GitHub Actions](.github/workflows/release.yml).
+- **Privacy policy:** This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it (see [Privacy & Credentials](#privacy--credentials)).
 
 ## Acknowledgments & License
 
