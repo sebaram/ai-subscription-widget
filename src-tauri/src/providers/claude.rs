@@ -115,6 +115,7 @@ fn load_creds_from(dir: &std::path::Path) -> Option<Creds> {
 }
 
 /// Claude CLI owns this file; we only read it (design constraint).
+#[cfg(test)]
 fn token_needs_refresh(expires_at_ms: u64) -> bool {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

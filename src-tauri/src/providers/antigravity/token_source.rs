@@ -137,10 +137,6 @@ mod tests {
     use super::*;
     use base64::Engine;
 
-    fn wrap(value: &str) -> String {
-        base64::engine::general_purpose::STANDARD.encode(value)
-    }
-
     #[test]
     fn decode_oauth_blob_finds_both_tokens_nested() {
         // observed shape: outer base64 → protobuf with one printable run that is

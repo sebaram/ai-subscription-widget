@@ -3,6 +3,8 @@ name = "ai-usage"
 version = "0.1.2"
 description = "AI subscription usage widget"
 authors = ["Juyoung Lee"]
+license = "MIT"
+repository = "https://github.com/sebaram/ai-subscription-widget"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

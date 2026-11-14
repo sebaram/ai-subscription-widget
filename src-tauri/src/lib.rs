@@ -97,7 +97,7 @@ fn open_popup(app: tauri::AppHandle) {
 }
 
 /// Float-bar click: toggle the details page (click to show, click again to
-/// close — per Juyoung's request). Positioned relative to the float bar so it
+/// close). Positioned relative to the float bar so it
 /// never drifts to the wrong monitor.
 #[tauri::command]
 fn toggle_popup(app: tauri::AppHandle) {
@@ -164,11 +164,6 @@ fn get_config() -> crate::config::Config {
 #[tauri::command]
 fn hide_me(webview: tauri::WebviewWindow) {
     let _ = webview.hide();
-}
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {name}!")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -294,7 +289,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet, refresh_now, open_popup, open_settings, hide_me, save_config,
+            refresh_now, open_popup, open_settings, hide_me, save_config,
             save_float_position, set_click_through, get_config, toggle_popup
         ])
         .run(tauri::generate_context!())

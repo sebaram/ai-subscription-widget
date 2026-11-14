@@ -129,8 +129,7 @@ fn parse_summary(v: &Value) -> Vec<UsageWindow> {
         .into_iter()
         .map(|(id, title, minutes, used, resets)| make_window(&id, &title, minutes, used, resets))
         .collect();
-    // Per-model group lanes (Juyoung: gemini / others / argon should be
-    // individually visible): each group shows its own most-constrained bucket.
+    // Per-model group lanes: each group shows its own most-constrained bucket.
     for g in groups {
         let display = g
             .get("displayName")
@@ -381,7 +380,7 @@ pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
         .unwrap_or(false);
     let Some(info) = discovery::find_lsp() else {
         // the bundled agy CLI works even without the IDE (live-verified 2026-11-09)
-        if let Some(windows) = agy_usage_windows(ctx).await {
+        if let Some(windows) = agy_usage_windows().await {
             return snapshot_for(ProviderId::Antigravity, ProviderState::Ok, windows);
         }
         // Google remote fallback: optional, off by default (review I7 / spec)
@@ -399,7 +398,7 @@ pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
     if local.state == ProviderState::NoData {
         // LSP reachable but quota endpoints refused (agy 1.5.x gates them with CSRF):
         // the CLI itself answers /usage reliably.
-        if let Some(windows) = agy_usage_windows(ctx).await {
+        if let Some(windows) = agy_usage_windows().await {
             return snapshot_for(ProviderId::Antigravity, ProviderState::Ok, windows);
         }
     }
@@ -419,7 +418,7 @@ fn agy_exe() -> Option<std::path::PathBuf> {
 
 /// `agy -p "/usage" --output-format json` — the bundled CLI reports real quota
 /// groups from its own login; works headless even when the IDE is closed.
-async fn agy_usage_windows(ctx: &FetchCtx) -> Option<Vec<UsageWindow>> {
+async fn agy_usage_windows() -> Option<Vec<UsageWindow>> {
     let exe = agy_exe()?;
     let mut cmd = tokio::process::Command::new(exe);
     cmd.args(["-p", "/usage", "--output-format", "json"]);

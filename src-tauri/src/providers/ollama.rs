@@ -84,15 +84,6 @@ pub fn format_usd(v: f64) -> String {
 
 /// Resolution order: config field → OLLAMA_API_KEY env → `.env` files (cwd / cwd parent / exe dir).
 pub fn resolve_key(cfg_key: &str) -> String {
-    let cfg = cfg_key.trim();
-    if !cfg.is_empty() {
-        return cfg.to_string();
-    }
-    if let Ok(k) = std::env::var("OLLAMA_API_KEY") {
-        if !k.trim().is_empty() {
-            return k.trim().to_string();
-        }
-    }
     let mut dirs = vec![std::env::current_dir().ok()];
     if let Some(cwd) = std::env::current_dir().ok() {
         dirs.push(cwd.parent().map(std::path::Path::to_path_buf));
@@ -100,7 +91,21 @@ pub fn resolve_key(cfg_key: &str) -> String {
     if let Ok(exe) = std::env::current_exe() {
         dirs.push(exe.parent().map(std::path::Path::to_path_buf));
     }
-    for env_path in dirs.into_iter().flatten().map(|d| d.join(".env")) {
+    let search_dirs: Vec<std::path::PathBuf> = dirs.into_iter().flatten().collect();
+    resolve_key_from(cfg_key, std::env::var("OLLAMA_API_KEY").ok().as_deref(), &search_dirs)
+}
+
+fn resolve_key_from(cfg_key: &str, env_key: Option<&str>, search_dirs: &[std::path::PathBuf]) -> String {
+    let cfg = cfg_key.trim();
+    if !cfg.is_empty() {
+        return cfg.to_string();
+    }
+    if let Some(k) = env_key {
+        if !k.trim().is_empty() {
+            return k.trim().to_string();
+        }
+    }
+    for env_path in search_dirs.iter().map(|d| d.join(".env")) {
         if let Ok(text) = std::fs::read_to_string(&env_path) {
             for line in text.lines() {
                 if let Some(v) = line.strip_prefix("OLLAMA_API_KEY=") {
@@ -227,22 +232,21 @@ mod tests {
 
     #[test]
     fn ollama_resolve_key_prefers_config_field() {
-        assert_eq!(resolve_key("cfg-key"), "cfg-key");
+        assert_eq!(resolve_key_from("cfg-key", Some("env-key"), &[]), "cfg-key");
+        assert_eq!(resolve_key_from("", Some("env-key"), &[]), "env-key");
     }
 
     #[test]
     fn ollama_resolve_key_reads_dotenv_with_config_empty() {
-        if std::env::var("OLLAMA_API_KEY").is_ok() {
-            return; // real env present on this dev machine: dotenv fallback is not the active branch
-        }
-        // repo root .env holds a real key on this machine; cwd for tests is src-tauri, parent = repo root
-        assert!(!resolve_key("").is_empty(), "expected .env fallback beside repo root");
+        let dir = std::env::temp_dir().join(format!("aiusage-ollama-dotenv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".env"), "OTHER=1\nOLLAMA_API_KEY=dotenv-secret\n").unwrap();
+        assert_eq!(resolve_key_from("", None, std::slice::from_ref(&dir)), "dotenv-secret");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn ollama_resolve_key_no_key_anywhere_is_empty() {
-        // can't guarantee env/dotenv absence in a shared environment; only shape-check
-        let k = resolve_key("");
-        assert!(k.trim() == k);
+        assert_eq!(resolve_key_from("", None, &[]), "");
     }
 }

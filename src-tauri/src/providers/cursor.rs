@@ -5,7 +5,6 @@ use crate::providers::FetchCtx;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::FetchCtx;
     use serde_json::json;
 
     const FIXTURE: &str = r#"{

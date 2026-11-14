@@ -294,7 +294,7 @@ pub async fn fetch(ctx: &FetchCtx) -> ProviderSnapshot {
 }
 
 async fn fetch_with_auth(ctx: &FetchCtx, auth: Option<CodexAuth>) -> ProviderSnapshot {
-    let Some(mut auth) = auth else {
+    let Some(auth) = auth else {
         return snapshot_for(ProviderId::Codex, ProviderState::AuthRequired, vec![]);
     };
     // Review I4: cache-first — refresh once per expiry, never re-play a rotated token.

@@ -36,6 +36,7 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
+#[cfg(test)]
 fn read_value(raw: &Value) -> Option<String> {
     match raw {
         Value::String(s) => Some(s.clone()),
